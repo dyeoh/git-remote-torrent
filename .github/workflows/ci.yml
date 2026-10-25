@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@1.88
+      - uses: dtolnay/rust-toolchain@1.120
       # `+1.88` overrides rust-toolchain.toml; without it cargo would use the
       # pinned toolchain and never test the minimum version.
       - run: cargo +1.88 check --workspace --locked

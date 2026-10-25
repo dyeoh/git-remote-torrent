@@ -19,7 +19,7 @@ jobs:
           tool: mdbook
       - run: mdbook build docs
       - run: cargo doc --workspace --no-deps --locked && cp -r target/doc docs/book/api
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/book
   deploy:

@@ -12,6 +12,7 @@ readme = "README.md"
 [dependencies]
 grt-core.workspace = true
 thiserror.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [lints]
 workspace = true

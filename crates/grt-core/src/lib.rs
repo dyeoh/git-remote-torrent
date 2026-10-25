@@ -1,6 +1,7 @@
 //! Core types for git-remote-torrent: signed ref manifests and the newtypes
 //! they are built from.
 //!
+//! A [`TrustStore`] lists the publisher keys a repository accepts.
 //! [`RemoteUrl`] parses the address git hands the remote helper.
 //!
 //! A repository's state is a [`Manifest`]: its refs, `HEAD`, the BitTorrent
@@ -44,6 +45,7 @@ mod publisher_key;
 mod ref_name;
 mod remote_url;
 mod signed_manifest;
+mod trust_store;
 
 pub use crate::error::Error;
 pub use crate::info_hash::InfoHash;
@@ -54,3 +56,4 @@ pub use crate::publisher_key::PublisherKey;
 pub use crate::ref_name::RefName;
 pub use crate::remote_url::RemoteUrl;
 pub use crate::signed_manifest::{MAX_SALT_LEN, MAX_VALUE_LEN, Seq, SignedManifest};
+pub use crate::trust_store::{TrustStore, TrustedKey};

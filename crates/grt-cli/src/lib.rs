@@ -1,2 +1,31 @@
-//! Implementation of the `git torrent` subcommands (`init`, `keygen`, `trust`,
-//! `seed`, `status`, `compact`).
+//! Implementation of `git torrent`: publisher keys, the trust store and
+//! signed manifests.
+//!
+//! This is an application crate, so it reports errors with `anyhow`. All
+//! output goes through the `out` writer handed to [`run`] so it can be tested.
+
+mod cli;
+mod key;
+mod sign;
+mod status;
+mod trust;
+
+use std::io::Write;
+use std::path::Path;
+
+pub use crate::cli::Cli;
+use crate::cli::Command;
+
+/// Runs one `git torrent` invocation from directory `cwd`.
+///
+/// # Errors
+///
+/// Returns an error describing what went wrong; the binary prints it.
+pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
+    match cli.command {
+        Command::Key(command) => key::run(command, out),
+        Command::Trust(command) => trust::run(command, cwd, out),
+        Command::Sign(args) => sign::run(&args, cwd, out),
+        Command::Status => status::run(cwd, out),
+    }
+}

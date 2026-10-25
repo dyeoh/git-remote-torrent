@@ -100,7 +100,7 @@ jobs:
           git cliff --tag "$VERSION" --output CHANGELOG.md
           git cliff --tag "$VERSION" --unreleased --strip all > "$RUNNER_TEMP/notes.md"
       - if: steps.version.outputs.release == 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: release/next
           delete-branch: true

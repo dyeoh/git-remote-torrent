@@ -40,7 +40,7 @@ jobs:
           done
           cp README.md LICENSE-MIT LICENSE-APACHE "$name/"
           tar czf "$name.tar.gz" "$name"
-      - uses: actions/attest-build-provenance@v2
+      - uses: actions/attest-build-provenance@v4
         with:
           subject-path: "*.tar.gz"
       - uses: actions/upload-artifact@v4

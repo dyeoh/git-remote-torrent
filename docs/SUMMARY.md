@@ -6,7 +6,7 @@
 - [Your first immortal repo](tutorials/first-immortal-repo.md)
 
 # How-to guides
-- [Trust a forge user's keys](how-to/trust-forge-keys.md)
+- [Set up keys and trust](how-to/keys-and-trust.md)
 
 # Reference
 - [URL syntax](reference/url-syntax.md)

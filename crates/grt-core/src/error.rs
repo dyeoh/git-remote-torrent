@@ -52,6 +52,20 @@ pub enum Error {
         /// The kind of value.
         what: &'static str,
     },
+    /// An OpenSSH key is malformed or uses an unsupported algorithm.
+    #[error("invalid SSH key: {reason}")]
+    InvalidSshKey {
+        /// What was wrong with it.
+        reason: String,
+    },
+    /// A trust store line could not be parsed.
+    #[error("trust store line {line}: {source}")]
+    InvalidTrustStore {
+        /// 1-based line number.
+        line: usize,
+        /// Why the line was rejected.
+        source: Box<Error>,
+    },
     /// Bytes are not a valid Ed25519 public key.
     #[error("invalid Ed25519 public key")]
     InvalidPublicKey,

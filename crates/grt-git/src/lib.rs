@@ -1,5 +1,10 @@
-//! Thin wrapper over git plumbing (`rev-list`, `pack-objects`, `index-pack`,
-//! `for-each-ref`).
+//! Thin wrapper over git plumbing commands.
 //!
-//! Commands are run through the user's installed `git` binary so behaviour
+//! Commands run through the user's installed `git` binary so behaviour
 //! matches their git version and configuration exactly.
+
+mod error;
+mod repo;
+
+pub use crate::error::Error;
+pub use crate::repo::{Repo, global_config, set_global_config};

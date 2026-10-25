@@ -26,7 +26,8 @@ are added. Tooling enforces whatever it can (`rustfmt.toml`, `[workspace.lints]`
 ## Errors
 
 - Use `Result` for recoverable failures. Each library crate has one `thiserror` error
-  enum, marked `#[non_exhaustive]`. Binaries use `anyhow` with `.context(..)`.
+  enum, marked `#[non_exhaustive]`. Binaries, and application crates such as `grt-cli`
+  whose library exists only so it can be tested, use `anyhow` with `.context(..)`.
 - `panic!` is only for violated invariants (bugs), never for bad input from the network.
   **All peer data is hostile.**
 - Never use `unwrap()`; clippy denies it outside tests. Use `expect("why this cannot

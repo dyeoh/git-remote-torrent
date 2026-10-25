@@ -16,6 +16,9 @@ grt-git = { path = "crates/grt-git", version = "0.0.0" }
 grt-swarm = { path = "crates/grt-swarm", version = "0.0.0" }
 grt-upstream = { path = "crates/grt-upstream", version = "0.0.0" }
 anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+ssh-key = { version = "0.6", default-features = false, features = ["std"] }
+tempfile = "3"
 thiserror = "2"
 
 [workspace.lints.rust]

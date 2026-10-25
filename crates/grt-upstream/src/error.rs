@@ -24,6 +24,9 @@ pub enum Error {
         /// The offending line.
         line: String,
     },
+    /// Fetching keys from a forge failed.
+    #[error("forge request failed: {0}")]
+    Forge(String),
     /// A push refspec is malformed.
     #[error("invalid push refspec {0:?}")]
     InvalidPushSpec(String),

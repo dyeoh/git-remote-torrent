@@ -11,7 +11,13 @@ readme = "README.md"
 
 [dependencies]
 anyhow.workspace = true
+clap.workspace = true
 grt-core.workspace = true
+grt-git.workspace = true
+grt-upstream.workspace = true
+rpassword = "7"
+ssh-key = { workspace = true, features = ["encryption"] }
+thiserror.workspace = true
 
 [lints]
 workspace = true
@@ -19,3 +25,6 @@ workspace = true
 [[bin]]
 name = "git-torrent"
 path = "src/main.rs"
+
+[dev-dependencies]
+tempfile.workspace = true

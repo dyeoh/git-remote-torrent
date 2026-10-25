@@ -13,8 +13,11 @@ takedown, outage or revoked account doesn't take the code with it.
 ## Try it
 
 ```sh
-cargo install --git https://github.com/dyeoh/git-remote-torrent grt-helper
+cargo install --git https://github.com/dyeoh/git-remote-torrent grt-helper grt-cli
 git clone torrent::https://github.com/octocat/Hello-World.git
+cd Hello-World
+git torrent key use ~/.ssh/id_ed25519   # sign with the key your forge already knows
+git torrent sign && git torrent status
 ```
 
 ## Quickstart (planned)
@@ -56,6 +59,7 @@ takes over the jobs a single server handles worst:
 ## Documentation
 
 - [Tutorial: your first immortal repo](docs/tutorials/first-immortal-repo.md)
+- [How to set up keys and trust](docs/how-to/keys-and-trust.md)
 - [Architecture](docs/explanation/architecture.md) · [Roadmap](docs/explanation/roadmap.md) · [ADRs](docs/adr/)
 - [Contributing](CONTRIBUTING.md) · [Style guide](docs/STYLE.md) · [Security](SECURITY.md)
 

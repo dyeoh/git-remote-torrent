@@ -95,7 +95,7 @@ impl Repo {
         config_get(command)
     }
 
-    fn git(&self) -> Command {
+    pub(crate) fn git(&self) -> Command {
         let mut command = Command::new("git");
         command.arg("--git-dir").arg(&self.git_dir);
         command
@@ -147,7 +147,7 @@ fn run(mut command: Command, name: &str) -> Result<String, Error> {
     })
 }
 
-fn check(output: &std::process::Output, name: &str) -> Result<(), Error> {
+pub(crate) fn check(output: &std::process::Output, name: &str) -> Result<(), Error> {
     if output.status.success() {
         return Ok(());
     }

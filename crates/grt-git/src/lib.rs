@@ -4,6 +4,7 @@
 //! matches their git version and configuration exactly.
 
 mod error;
+mod pack;
 mod repo;
 
 pub use crate::error::Error;

@@ -99,3 +99,127 @@ fn sha256_repositories_yield_sha256_ids() {
         "a SHA-256 repository reports 32-byte ids"
     );
 }
+
+/// An empty bare repository in `format`, as a `Repo`.
+fn bare(dir: &TempDir, name: &str, format: &str) -> Repo {
+    git(
+        dir.path(),
+        &[
+            "init",
+            "-q",
+            "--bare",
+            &format!("--object-format={format}"),
+            name,
+        ],
+    );
+    Repo::discover(&dir.path().join(name)).expect("discover bare repo")
+}
+
+fn head_id(dir: &Path) -> ObjectId {
+    git(dir, &["rev-parse", "HEAD"]).parse().expect("hex id")
+}
+
+#[test]
+fn full_pack_round_trips_into_an_empty_repository() {
+    for format in ["sha1", "sha256"] {
+        let source = repo(format);
+        let tip = head_id(source.path());
+        let pack = source.path().join("full.pack");
+        let count = Repo::discover(source.path())
+            .expect("discover repo")
+            .write_pack(&[tip], &[], &pack)
+            .expect("write pack");
+        assert_eq!(count, 3, "{format}: one commit, one tree, one blob");
+
+        let target = TempDir::new().expect("create temp dir");
+        let clone = bare(&target, "clone.git", format);
+        assert!(
+            !clone.contains(&tip).expect("query"),
+            "{format}: empty repo lacks the tip"
+        );
+        clone.index_pack(&pack).expect("index full pack");
+        assert!(
+            clone.contains(&tip).expect("query"),
+            "{format}: tip present after indexing"
+        );
+    }
+}
+
+#[test]
+fn incremental_packs_apply_oldest_first() {
+    let source = repo("sha1");
+    let first = head_id(source.path());
+    fs::write(source.path().join("README"), "changed\n").expect("write file");
+    git(source.path(), &["commit", "-q", "-am", "two"]);
+    let second = head_id(source.path());
+    let source_repo = Repo::discover(source.path()).expect("discover repo");
+
+    let full = source.path().join("1.pack");
+    let next = source.path().join("2.pack");
+    assert_eq!(
+        source_repo
+            .write_pack(&[first], &[], &full)
+            .expect("full pack"),
+        3
+    );
+    assert_eq!(
+        source_repo
+            .write_pack(&[second], &[first], &next)
+            .expect("incremental pack"),
+        3,
+        "only the new commit, tree and blob"
+    );
+
+    let target = TempDir::new().expect("create temp dir");
+    let alone = bare(&target, "alone.git", "sha1");
+    assert!(
+        alone.index_pack(&next).is_err(),
+        "an incremental pack alone has a dangling parent link and must be rejected"
+    );
+
+    let chain = bare(&target, "chain.git", "sha1");
+    chain.index_pack(&full).expect("index first pack");
+    chain.index_pack(&next).expect("index second pack");
+    assert!(
+        chain.contains(&second).expect("query"),
+        "chain yields the latest commit"
+    );
+}
+
+#[test]
+fn corrupt_pack_is_rejected() {
+    let source = repo("sha1");
+    let tip = head_id(source.path());
+    let pack = source.path().join("full.pack");
+    Repo::discover(source.path())
+        .expect("discover repo")
+        .write_pack(&[tip], &[], &pack)
+        .expect("write pack");
+    let mut bytes = fs::read(&pack).expect("read pack");
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0xff;
+    fs::write(&pack, bytes).expect("rewrite pack");
+
+    let target = TempDir::new().expect("create temp dir");
+    let clone = bare(&target, "clone.git", "sha1");
+    assert!(
+        clone.index_pack(&pack).is_err(),
+        "a flipped byte must fail indexing"
+    );
+    assert!(
+        !clone.contains(&tip).expect("query"),
+        "nothing from a bad pack is kept"
+    );
+}
+
+#[test]
+fn unknown_exclusions_are_ignored() {
+    let source = repo("sha1");
+    let tip = head_id(source.path());
+    let unknown: ObjectId = "11".repeat(20).parse().expect("hex id");
+    let count = Repo::discover(source.path())
+        .expect("discover repo")
+        .write_pack(&[tip], &[unknown], &source.path().join("p.pack"))
+        .expect("an exclusion git has never seen cannot fail the pack");
+    assert_eq!(count, 3);
+}

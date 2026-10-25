@@ -24,6 +24,11 @@ See the [manifest format reference](../reference/manifest-format.md).
 `packs` is an ordered chain of self-contained packfiles. Each one is distributed as a
 BitTorrent v1 torrent ([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). `git torrent compact` folds the chain back into one base pack.
 
+Each pack holds the objects reachable from the new tips but not from the previous
+manifest's tips (`Repo::write_pack`). Receivers index the chain oldest first with
+`git index-pack --strict` (`Repo::index_pack`). That rejects any pack that links to
+objects not yet present, so packs can't be applied out of order.
+
 ## Hybrid fetch
 
 1. Query the upstream (`ls-remote`) and the DHT manifest in parallel.

@@ -1,4 +1,11 @@
-//! The git remote-helper protocol state machine behind `git-remote-torrent`.
+//! The git remote-helper protocol behind `git-remote-torrent`.
 //!
-//! Git talks to the helper over stdin/stdout; see `gitremote-helpers(7)`.
-//! Stdout is reserved for protocol replies, so all diagnostics go to stderr.
+//! Git starts the helper for `torrent::<url>` and `torrent://<key>` remotes and
+//! talks to it over stdin/stdout; see `gitremote-helpers(7)`. Stdout carries
+//! only protocol replies, so all diagnostics go to stderr.
+
+mod error;
+mod protocol;
+
+pub use crate::error::Error;
+pub use crate::protocol::run;

@@ -72,6 +72,14 @@ pub enum Error {
     /// The sequence number cannot be incremented further.
     #[error("sequence number overflow")]
     SeqOverflow,
+    /// A remote URL is malformed or unsafe.
+    #[error("invalid remote URL {url:?}: {reason}")]
+    InvalidUrl {
+        /// The rejected URL.
+        url: String,
+        /// What was wrong with it.
+        reason: &'static str,
+    },
     /// The operating system's random number generator failed.
     #[error("system random number generator failed")]
     Random,

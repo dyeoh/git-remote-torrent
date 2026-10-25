@@ -218,6 +218,9 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "grt-core",
+ "grt-upstream",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

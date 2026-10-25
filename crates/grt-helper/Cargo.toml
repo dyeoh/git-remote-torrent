@@ -12,6 +12,11 @@ readme = "README.md"
 [dependencies]
 anyhow.workspace = true
 grt-core.workspace = true
+grt-upstream.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
 
 [lints]
 workspace = true

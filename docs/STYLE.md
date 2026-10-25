@@ -95,6 +95,7 @@ module may `#[allow]` it. All diagnostics go through `tracing` to stderr.
 - Unit tests go in an inline `#[cfg(test)] mod tests`. Cross-crate and end-to-end tests
   go in `tests/`.
 - Every `assert!` gets a message saying why the condition should hold.
-- Protocol transcripts use snapshot tests (`insta`).
+- Protocol transcripts are tested by comparing exact strings. Snapshot tools trim trailing
+  newlines, and in the helper protocol a trailing blank line matters.
 - Tests must not touch the real DHT or network. Use `mainline::Testnet` and local bare
   repos.

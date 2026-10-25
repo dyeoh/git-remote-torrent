@@ -1,8 +1,19 @@
 name: Release
 
 on:
+  # Called by release-pr.yml after it tags a release.
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag, such as v0.1.0.
+        required: true
+        type: string
+  # Tags pushed by hand.
   push:
     tags: ["v*.*.*"]
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -21,6 +32,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -33,7 +46,7 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          name=git-remote-torrent-${GITHUB_REF_NAME}-${{ matrix.target }}
+          name=git-remote-torrent-${TAG}-${{ matrix.target }}
           mkdir "$name"
           for bin in git-remote-torrent git-torrent git-torrentd; do
             cp "target/${{ matrix.target }}/release/$bin" "$name/"
@@ -53,12 +66,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+      - run: git cliff --latest --strip all > "$RUNNER_TEMP/notes.md"
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - run: sha256sum *.tar.gz > SHA256SUMS
+      - run: sha256sum -- *.tar.gz > SHA256SUMS
       - uses: sigstore/cosign-installer@v3
       - run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
-      - run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes *.tar.gz SHA256SUMS SHA256SUMS.sigstore.json
+      - run: gh release create "$TAG" --verify-tag --notes-file "$RUNNER_TEMP/notes.md" -- ./*.tar.gz SHA256SUMS SHA256SUMS.sigstore.json
         env:
           GH_TOKEN: ${{ github.token }}

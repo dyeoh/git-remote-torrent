@@ -1,0 +1,109 @@
+name: Release flow
+
+# Every push to main opens or updates a "chore(release): vX.Y.Z" PR that bumps
+# the workspace version and regenerates CHANGELOG.md with git-cliff. Merging
+# that PR tags vX.Y.Z and builds the release. See docs/reference/versioning.md.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release this version instead of the computed one (for milestones, such as v0.2.0).
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-flow
+  cancel-in-progress: false
+
+jobs:
+  # A merged release PR is tagged.
+  tag:
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.event.head_commit.message, 'chore(release): v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: tag
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "grt-helper") | .version')
+          tag="v$version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  # A tag pushed with GITHUB_TOKEN does not trigger other workflows, so the
+  # release build is called directly.
+  release:
+    needs: tag
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+
+  # Any other push, or a manual run, opens or updates the release PR.
+  pr:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(release): v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+      - id: version
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          version="${REQUESTED:-$(git cliff --bumped-version)}"
+          if ! [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::invalid version '$version' (expected vX.Y.Z)"
+            exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            echo "$version is already released; nothing to do."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - if: steps.version.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          number="${VERSION#v}"
+          # Lockstep: the workspace version and the internal dependency versions.
+          sed -i -E "/^\[workspace\.package\]/,/^\[/ s/^version = \"[^\"]*\"/version = \"$number\"/" Cargo.toml
+          sed -i -E "s/^(grt-[a-z]+ = \{ path = \"crates\/grt-[a-z]+\", version = )\"[^\"]*\"/\1\"$number\"/" Cargo.toml
+          cargo update --workspace
+          git cliff --tag "$VERSION" --output CHANGELOG.md
+          git cliff --tag "$VERSION" --unreleased --strip all > "$RUNNER_TEMP/notes.md"
+      - if: steps.version.outputs.release == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: release/next
+          delete-branch: true
+          commit-message: "chore(release): ${{ steps.version.outputs.version }}"
+          title: "chore(release): ${{ steps.version.outputs.version }}"
+          body-path: ${{ runner.temp }}/notes.md

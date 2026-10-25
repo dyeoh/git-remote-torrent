@@ -34,8 +34,22 @@ Versions come from [Conventional Commits](https://www.conventionalcommits.org/):
 | `feat:` | patch | minor |
 | `feat!:` / `BREAKING CHANGE:` | minor | major |
 
-`release-plz` opens a release PR that bumps versions and writes `CHANGELOG.md`. Merging
-it tags the release, and the `Release` workflow builds, signs and publishes the binaries.
+The rules live in the `[bump]` section of `cliff.toml`. The release flow
+(`.github/workflows/release-pr.yml`) works like this:
+
+1. **Every push to `main`** asks git-cliff for the next version. If that version isn't
+   tagged yet, the workflow opens or updates a `chore(release): vX.Y.Z` PR. The PR sets
+   the workspace version and the internal dependency versions, and regenerates
+   `CHANGELOG.md` from the whole history. Its description is the new changelog section.
+2. **Merging the release PR** tags `vX.Y.Z` on `main`. The `Release` workflow then builds
+   binaries for four targets, records build provenance, signs `SHA256SUMS` with cosign
+   and publishes a GitHub Release whose notes come from the changelog.
+3. **Milestone releases** (0.2, 0.3, …) are started by hand. Run the workflow from the
+   Actions tab with `version` set, for example `v0.2.0`.
+
+The release PR is opened with the workflow's own token, so GitHub doesn't run CI on it.
+It changes only version numbers and the changelog, which are checked again by the CI run
+on `main` after the merge. See [ADR-0005](../adr/0005-git-cliff-release-flow.md).
 
 ## Planned milestones
 

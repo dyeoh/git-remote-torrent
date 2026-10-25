@@ -59,7 +59,7 @@ jobs:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo llvm-cov nextest --workspace --locked --lcov --output-path lcov.info
       - run: cargo test --workspace --doc --locked
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage-${{ matrix.os }}
           path: lcov.info

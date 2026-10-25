@@ -28,3 +28,11 @@ commit_parsers = [
   { message = "^security", group = "Security" },
   { message = "^(chore|ci|test|style|build)", skip = true },
 ]
+
+# Next-version rules (see docs/reference/versioning.md). Before 1.0:
+# fix/feat -> patch, breaking -> minor. Milestone minors are set by hand
+# with the release workflow's `version` input.
+[bump]
+features_always_bump_minor = false
+breaking_always_bump_major = false
+initial_tag = "v0.1.0"

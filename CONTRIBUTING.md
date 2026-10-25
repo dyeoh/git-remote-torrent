@@ -27,8 +27,9 @@ lints in `Cargo.toml` enforce most of it.
 - Write commits as [Conventional Commits](https://www.conventionalcommits.org/):
   `feat(helper): add list command`, `fix(core): reject manifests with seq 0`.
   Mark breaking changes with `feat!:` or a `BREAKING CHANGE:` footer. CI lints PR commits.
-- Don't edit versions or `CHANGELOG.md` by hand. `release-plz` opens a release PR that
-  does both. See [docs/reference/versioning.md](docs/reference/versioning.md).
+- Don't edit versions or `CHANGELOG.md` by hand. The release flow opens a
+  `chore(release)` PR that does both. See
+  [docs/reference/versioning.md](docs/reference/versioning.md).
 - Record significant design decisions as an ADR in [docs/adr/](docs/adr/).
 
 ## Pull requests

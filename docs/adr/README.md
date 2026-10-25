@@ -10,3 +10,4 @@ edited. A later decision supersedes it with a new ADR.
 | [0002](0002-bep44-signed-manifests.md) | Signed ref manifests as BEP 44 mutable items | Accepted |
 | [0003](0003-non-deterministic-packs.md) | Packs need not be deterministic | Accepted |
 | [0004](0004-incremental-pack-chain.md) | Incremental pack chain with compaction | Accepted |
+| [0005](0005-git-cliff-release-flow.md) | Release flow with git-cliff instead of release-plz | Accepted |

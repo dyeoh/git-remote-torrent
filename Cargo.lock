@@ -617,6 +617,8 @@ dependencies = [
 name = "grt-git"
 version = "0.1.0"
 dependencies = [
+ "grt-core",
+ "tempfile",
  "thiserror",
 ]
 

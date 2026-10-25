@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
-use grt_core::RemoteUrl;
+use grt_core::{ObjectId, RefName, RemoteUrl};
 use grt_git::Repo;
 
 use crate::{sign, trust};
@@ -41,26 +41,22 @@ pub(crate) fn run(cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
             .map_or("(detached or unset)".to_owned(), ToString::to_string)
     )?;
 
-    let local: BTreeMap<String, String> = repo
-        .refs(sign::PUBLISHED_REFS)?
-        .into_iter()
-        .map(|(id, name)| (name, id))
-        .collect();
+    let local: BTreeMap<RefName, ObjectId> = repo.refs(sign::PUBLISHED_REFS)?.into_iter().collect();
     let mut in_sync = true;
     writeln!(out, "Refs:")?;
     for (name, id) in manifest.refs() {
-        let note = match local.get(name.as_str()) {
-            Some(local_id) if *local_id == id.to_string() => String::new(),
+        let note = match local.get(name) {
+            Some(local_id) if local_id == id => String::new(),
             Some(local_id) => format!("  (local: {local_id})"),
             None => "  (missing locally)".to_owned(),
         };
         in_sync &= note.is_empty();
         writeln!(out, "  {id} {name}{note}")?;
     }
-    for name in local.keys().filter(|name| {
-        name.parse()
-            .map_or(true, |name| !manifest.refs().contains_key(&name))
-    }) {
+    for name in local
+        .keys()
+        .filter(|name| !manifest.refs().contains_key(*name))
+    {
         in_sync = false;
         writeln!(out, "  + {name}  (not in manifest)")?;
     }

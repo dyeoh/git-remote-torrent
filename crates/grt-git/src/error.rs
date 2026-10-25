@@ -17,6 +17,9 @@ pub enum Error {
         /// What it printed to stderr.
         stderr: String,
     },
+    /// Git reported a ref name or object id that fails validation.
+    #[error(transparent)]
+    Invalid(#[from] grt_core::Error),
     /// A git command printed something we could not parse.
     #[error("unexpected output from `git {command}`: {line:?}")]
     UnexpectedOutput {

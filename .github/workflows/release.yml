@@ -50,9 +50,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG || github.sha }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+      # Inside the checkout, rustup uses the toolchain pinned in
+      # rust-toolchain.toml, so the target is added to that toolchain.
+      - run: rustup target add ${{ matrix.target }}
       # musl-gcc compiles C dependencies (ring) for the static musl binaries.
       - if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools

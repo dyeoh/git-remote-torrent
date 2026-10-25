@@ -48,7 +48,7 @@ mod signed_manifest;
 mod trust_store;
 
 pub use crate::error::Error;
-pub use crate::info_hash::InfoHash;
+pub use crate::info_hash::{InfoHash, InfoHashV2};
 pub use crate::manifest::{MANIFEST_VERSION, Manifest};
 pub use crate::object_id::ObjectId;
 pub use crate::public_key::PublicKey;

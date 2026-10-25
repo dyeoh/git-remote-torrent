@@ -5,7 +5,10 @@ use crate::error::Error;
 use crate::manifest::Manifest;
 use crate::public_key::PublicKey;
 
-/// Largest value a BEP 44 mutable item may carry, in bytes.
+/// Largest bencoded `v` a BEP 44 mutable item may carry, in bytes.
+///
+/// The manifest travels as a bencode byte string, so its own length prefix
+/// (`NNN:`) counts toward this limit.
 pub const MAX_VALUE_LEN: usize = 1000;
 
 /// Largest BEP 44 salt, in bytes.
@@ -198,6 +201,10 @@ impl SignedManifest {
 
 /// Builds the exact byte string BEP 44 signs: the bencoded `salt` (if any),
 /// `seq` and `v` entries, without the enclosing dictionary.
+///
+/// `v` is the manifest carried as a bencode *byte string*
+/// (`1:v<len>:<manifest>`), which is how DHT implementations such as
+/// `mainline` store and verify values. See ADR-0006.
 fn signable(salt: &[u8], seq: Seq, value: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(value.len() + salt.len() + 32);
     if !salt.is_empty() {
@@ -207,6 +214,7 @@ fn signable(salt: &[u8], seq: Seq, value: &[u8]) -> Vec<u8> {
     out.extend_from_slice(b"3:seq");
     out.extend_from_slice(&Value::Int(seq.get()).encode());
     out.extend_from_slice(b"1:v");
+    out.extend_from_slice(format!("{}:", value.len()).as_bytes());
     out.extend_from_slice(value);
     out
 }
@@ -223,9 +231,10 @@ fn check_salt(salt: &[u8]) -> Result<(), Error> {
 }
 
 fn check_value_len(value: &[u8]) -> Result<(), Error> {
-    if value.len() > MAX_VALUE_LEN {
+    let encoded = value.len() + value.len().to_string().len() + 1;
+    if encoded > MAX_VALUE_LEN {
         return Err(Error::TooLarge {
-            size: value.len(),
+            size: encoded,
             limit: MAX_VALUE_LEN,
         });
     }
@@ -250,13 +259,13 @@ mod tests {
 
     #[test]
     fn signable_matches_bep44_layout() {
-        // Byte layouts from the BEP 44 test vectors ("Hello World!", seq 1).
+        // Byte layouts from the BEP 44 test vectors: v = "Hello World!", seq 1.
         assert_eq!(
-            signable(b"", Seq(1), b"12:Hello World!"),
+            signable(b"", Seq(1), b"Hello World!"),
             b"3:seqi1e1:v12:Hello World!"
         );
         assert_eq!(
-            signable(b"foobar", Seq(1), b"12:Hello World!"),
+            signable(b"foobar", Seq(1), b"Hello World!"),
             b"4:salt6:foobar3:seqi1e1:v12:Hello World!"
         );
     }

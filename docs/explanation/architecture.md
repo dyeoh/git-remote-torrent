@@ -4,7 +4,7 @@
 |-------|----------------|-------|
 | `grt-core` | Manifest schema (bencode), Ed25519 signing, trust store, URL parsing | no |
 | `grt-git` | Wrapper over git plumbing via the installed `git` binary | no |
-| `grt-swarm` | Mainline DHT (BEP 44/46), BitTorrent v2 packs, BEP 19 web seeds, mDNS | yes |
+| `grt-swarm` | Mainline DHT (BEP 44/46), BitTorrent v1 packs, BEP 19 web seeds, mDNS | yes |
 | `grt-upstream` | Canonical HTTPS/SSH remote; forge key discovery | yes |
 | `grt-helper` | `git-remote-torrent`: the remote-helper protocol | yes |
 | `grt-cli` | `git-torrent`: init, keygen, trust, seed, status, compact | yes |
@@ -16,13 +16,13 @@ A **signed ref manifest** is a BEP 44 mutable item, keyed by the publisher's Ed2
 key and an optional salt:
 
 ```
-{ v, refs: {name: oid}, packs: <infohash…>, head?, up? }   signed with (salt, seq)
+{ v, refs: {name: oid}, packs: <v1 infohash…>, packs2?, head?, up? }   signed with (salt, seq)
 ```
 
 See the [manifest format reference](../reference/manifest-format.md).
 
 `packs` is an ordered chain of self-contained packfiles. Each one is distributed as a
-BitTorrent v2 torrent. `git torrent compact` folds the chain back into one base pack.
+BitTorrent v1 torrent ([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). `git torrent compact` folds the chain back into one base pack.
 
 ## Hybrid fetch
 

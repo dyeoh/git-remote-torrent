@@ -93,8 +93,11 @@ pub(crate) fn load(repo: &Repo) -> anyhow::Result<Option<SignedManifest>> {
     match SignedManifest::decode(&bytes) {
         Ok(signed) => Ok(Some(signed)),
         Err(error) => bail!(
-            "{} failed verification ({error}); it may have been tampered with",
-            path.display()
+            "{path} failed verification ({error}).\n\
+             If it was signed by git-remote-torrent 0.1.0, the signature format changed \
+             in 0.2.0: delete it and run `git torrent sign` again. Otherwise it may have \
+             been tampered with.",
+            path = path.display()
         ),
     }
 }

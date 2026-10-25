@@ -1,6 +1,6 @@
 # 0003. Packs need not be deterministic
 
-- Status: Accepted
+- Status: Accepted; transport choice superseded by [0006](0006-bittorrent-v1-and-bep44-value-layout.md)
 - Date: 2026-10-25
 
 ## Context and problem

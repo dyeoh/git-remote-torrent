@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::bencode::Value;
 use crate::error::Error;
-use crate::info_hash::InfoHash;
+use crate::info_hash::{InfoHash, InfoHashV2};
 use crate::object_id::ObjectId;
 use crate::ref_name::RefName;
 
@@ -17,6 +17,7 @@ const KEY_VERSION: &[u8] = b"v";
 const KEY_HEAD: &[u8] = b"head";
 const KEY_REFS: &[u8] = b"refs";
 const KEY_PACKS: &[u8] = b"packs";
+const KEY_PACKS_V2: &[u8] = b"packs2";
 const KEY_UPSTREAM: &[u8] = b"up";
 
 /// A repository's published state: its refs and the packs that hold their objects.
@@ -27,7 +28,8 @@ const KEY_UPSTREAM: &[u8] = b"up";
 /// |-----|-------|
 /// | `v` | format version ([`MANIFEST_VERSION`]) |
 /// | `refs` | dictionary of ref name → raw object id |
-/// | `packs` | concatenated 32-byte pack infohashes, oldest first |
+/// | `packs` | concatenated 20-byte BitTorrent v1 pack infohashes, oldest first |
+/// | `packs2` | optional; concatenated 32-byte v2 infohashes of the same packs, same order |
 /// | `head` | optional ref name that `HEAD` points to |
 /// | `up` | optional canonical upstream URL |
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -35,6 +37,7 @@ pub struct Manifest {
     head: Option<RefName>,
     refs: BTreeMap<RefName, ObjectId>,
     packs: Vec<InfoHash>,
+    packs_v2: Option<Vec<InfoHashV2>>,
     upstream: Option<String>,
 }
 
@@ -92,14 +95,41 @@ impl Manifest {
         Ok(())
     }
 
-    /// Pack infohashes, oldest first.
+    /// Pack infohashes (BitTorrent v1), oldest first.
     pub fn packs(&self) -> &[InfoHash] {
         &self.packs
     }
 
     /// Appends a pack to the chain.
+    ///
+    /// This clears [`Manifest::packs_v2`], which must list exactly the same
+    /// packs; set it again afterwards if the new pack has a v2 torrent too.
     pub fn push_pack(&mut self, pack: InfoHash) {
         self.packs.push(pack);
+        self.packs_v2 = None;
+    }
+
+    /// BitTorrent v2 infohashes for the same packs as [`Manifest::packs`], in
+    /// the same order, if the publisher provides them.
+    pub fn packs_v2(&self) -> Option<&[InfoHashV2]> {
+        self.packs_v2.as_deref()
+    }
+
+    /// Sets the v2 infohashes of the packs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidField`] if `packs_v2` does not have one entry
+    /// per pack in [`Manifest::packs`].
+    pub fn set_packs_v2(&mut self, packs_v2: Option<Vec<InfoHashV2>>) -> Result<(), Error> {
+        if packs_v2
+            .as_ref()
+            .is_some_and(|v2| v2.len() != self.packs.len())
+        {
+            return Err(invalid("packs2", "not one entry per pack"));
+        }
+        self.packs_v2 = packs_v2;
+        Ok(())
     }
 
     /// The canonical upstream URL, if the repository has one.
@@ -135,6 +165,14 @@ impl Manifest {
         dict.insert(KEY_VERSION.to_vec(), Value::Int(MANIFEST_VERSION));
         dict.insert(KEY_REFS.to_vec(), Value::Dict(refs));
         dict.insert(KEY_PACKS.to_vec(), Value::Bytes(packs));
+        if let Some(packs_v2) = &self.packs_v2 {
+            let packs_v2 = packs_v2
+                .iter()
+                .flat_map(InfoHashV2::as_bytes)
+                .copied()
+                .collect();
+            dict.insert(KEY_PACKS_V2.to_vec(), Value::Bytes(packs_v2));
+        }
         if let Some(head) = &self.head {
             dict.insert(
                 KEY_HEAD.to_vec(),
@@ -189,10 +227,24 @@ impl Manifest {
             .ok_or(invalid("packs", "not a byte string"))?;
         let chunks = packs.chunks_exact(InfoHash::LEN);
         if !chunks.remainder().is_empty() {
-            return Err(invalid("packs", "not a multiple of 32 bytes"));
+            return Err(invalid("packs", "not a multiple of 20 bytes"));
         }
         for chunk in chunks {
             manifest.push_pack(InfoHash::try_from(chunk)?);
+        }
+
+        if let Some(packs_v2) = dict.get(KEY_PACKS_V2) {
+            let packs_v2 = packs_v2
+                .as_bytes()
+                .ok_or(invalid("packs2", "not a byte string"))?;
+            let chunks = packs_v2.chunks_exact(InfoHashV2::LEN);
+            if !chunks.remainder().is_empty() {
+                return Err(invalid("packs2", "not a multiple of 32 bytes"));
+            }
+            let packs_v2 = chunks
+                .map(InfoHashV2::try_from)
+                .collect::<Result<Vec<_>, _>>()?;
+            manifest.set_packs_v2(Some(packs_v2))?;
         }
 
         if let Some(head) = dict.get(KEY_HEAD) {
@@ -246,8 +298,8 @@ mod tests {
             )
             .unwrap();
         manifest.set_head(Some(main)).unwrap();
-        manifest.push_pack(InfoHash::from([1; 32]));
-        manifest.push_pack(InfoHash::from([2; 32]));
+        manifest.push_pack(InfoHash::from([1; 20]));
+        manifest.push_pack(InfoHash::from([2; 20]));
         manifest.set_upstream(Some("https://github.com/org/repo.git".to_owned()));
         manifest
     }
@@ -315,6 +367,46 @@ mod tests {
             ),
             Err(Error::MixedObjectFormats)
         );
+    }
+
+    #[test]
+    fn packs_v2_round_trips_and_must_match_packs() {
+        let mut manifest = sample();
+        let v2 = vec![InfoHashV2::from([3; 32]), InfoHashV2::from([4; 32])];
+        manifest.set_packs_v2(Some(v2.clone())).unwrap();
+        let decoded = Manifest::decode(&manifest.encode()).unwrap();
+        assert_eq!(
+            decoded.packs_v2(),
+            Some(v2.as_slice()),
+            "packs2 survives a round trip"
+        );
+
+        assert!(
+            manifest
+                .set_packs_v2(Some(vec![InfoHashV2::from([3; 32])]))
+                .is_err(),
+            "packs2 needs one entry per pack"
+        );
+        manifest.push_pack(InfoHash::from([5; 20]));
+        assert_eq!(
+            manifest.packs_v2(),
+            None,
+            "a new pack invalidates the v2 list"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_pack_lists() {
+        for (key, bytes) in [("packs", vec![0; 32]), ("packs2", vec![0; 20])] {
+            let Ok(Value::Dict(mut dict)) = Value::decode(&sample().encode()) else {
+                panic!("a manifest encodes as a dictionary");
+            };
+            dict.insert(key.as_bytes().to_vec(), Value::Bytes(bytes));
+            assert!(
+                Manifest::decode(&Value::Dict(dict).encode()).is_err(),
+                "{key} with the wrong entry width must be rejected"
+            );
+        }
     }
 
     #[test]

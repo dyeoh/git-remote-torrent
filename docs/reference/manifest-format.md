@@ -11,12 +11,14 @@ signed with the publisher's Ed25519 key. It is implemented in `grt-core`
 |-----|------|----------|---------|
 | `v` | integer | yes | Format version. Currently `1`. |
 | `refs` | dict: ref name → bytes | yes | Each ref's object id as raw bytes: 20 for SHA-1, 32 for SHA-256. All ids in one manifest use the same format. |
-| `packs` | bytes | yes | Concatenated 32-byte BitTorrent v2 infohashes, oldest pack first. Empty if there are no packs. |
+| `packs` | bytes | yes | Concatenated 20-byte BitTorrent v1 infohashes, oldest pack first. Empty if there are no packs. |
+| `packs2` | bytes | no | Concatenated 32-byte BitTorrent v2 infohashes of the **same** packs, in the same order. Reserved for v2-capable clients; current writers leave it out. See [ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md). |
 | `head` | bytes | no | The ref `HEAD` points to. It must be a key of `refs`. |
 | `up` | bytes (UTF-8) | no | The canonical upstream URL. |
 
-Keys are short because the whole encoded value must fit in **1000 bytes**, the BEP 44
-limit. That allows roughly 20 refs. Repositories with more refs will use an
+Keys are short because the encoded value, including its byte-string length prefix (see
+[Signature](#signature)), must fit in **1000 bytes**, the BEP 44 limit. That allows
+roughly 20 refs. Repositories with more refs will use an
 indirection (`refs_root`), added later as a minor format change.
 
 ### Validation
@@ -28,7 +30,9 @@ Every manifest comes from an untrusted peer. Readers reject it when:
 - `v` isn't `1`
 - a ref name fails `git check-ref-format` or doesn't start with `refs/`
 - an object id isn't 20 or 32 bytes, or SHA-1 and SHA-256 ids are mixed
-- `packs` isn't a multiple of 32 bytes
+- `packs` isn't a multiple of 20 bytes
+- `packs2` is present but isn't a multiple of 32 bytes, or doesn't have one entry per
+  pack in `packs`
 - `head` names a ref that isn't in `refs`
 
 Readers **ignore unknown keys**, so later minor versions can add fields without breaking
@@ -36,13 +40,19 @@ older clients.
 
 ## Signature
 
-The signature follows BEP 44 exactly. The signed message is the bencoded `salt` (only if
-the salt isn't empty), `seq` and `v` entries, concatenated without the surrounding
-dictionary:
+The signature follows BEP 44. The signed message is the bencoded `salt` (only if the salt
+isn't empty), `seq` and `v` entries, concatenated without the surrounding dictionary. The
+manifest is carried in `v` as a bencode **byte string**:
 
 ```
-4:salt<len>:<salt>3:seqi<seq>e1:v<manifest bytes>
+4:salt<len>:<salt>3:seqi<seq>e1:v<len>:<manifest bytes>
 ```
+
+This is the layout DHT implementations such as `mainline` use to store and verify values,
+and it reproduces the BEP 44 test vectors exactly (`v` = `Hello World!` signs
+`3:seqi1e1:v12:Hello World!`). Version 0.1.0 signed the manifest dictionary directly as
+`v`, without the length prefix. Those signatures don't verify from 0.2.0 on. See
+[ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md).
 
 - **Key:** the publisher's Ed25519 key. Verification uses `verify_strict`, which rejects
   weak keys and malleable signatures.

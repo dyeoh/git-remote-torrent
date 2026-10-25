@@ -17,11 +17,10 @@ pub(crate) fn run(args: &SignArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::R
     let key = key::signing_key()?;
 
     let mut manifest = Manifest::new();
-    for (id, name) in repo.refs(PUBLISHED_REFS)? {
-        manifest.insert_ref(name.parse()?, id.parse()?)?;
+    for (name, id) in repo.refs(PUBLISHED_REFS)? {
+        manifest.insert_ref(name, id)?;
     }
     if let Some(head) = repo.head_target()? {
-        let head = head.parse()?;
         if manifest.refs().contains_key(&head) {
             manifest.set_head(Some(head))?;
         }

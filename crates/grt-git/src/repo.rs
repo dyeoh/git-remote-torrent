@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use grt_core::{ObjectId, RefName};
+
 use crate::error::Error;
 
 /// A local git repository.
@@ -32,13 +34,17 @@ impl Repo {
         &self.git_dir
     }
 
-    /// Lists refs matching `patterns` (for example `refs/heads`) as
-    /// `(object id, ref name)` pairs, sorted by name.
+    /// Lists refs matching `patterns` (for example `refs/heads`), sorted by
+    /// name.
+    ///
+    /// Names and ids are validated here, at the boundary, with the same rules
+    /// applied to refs from peers.
     ///
     /// # Errors
     ///
-    /// Returns an error if git fails or prints an unparseable line.
-    pub fn refs(&self, patterns: &[&str]) -> Result<Vec<(String, String)>, Error> {
+    /// Returns an error if git fails, prints an unparseable line, or reports
+    /// a ref name or object id that fails validation.
+    pub fn refs(&self, patterns: &[&str]) -> Result<Vec<(RefName, ObjectId)>, Error> {
         let mut command = self.git();
         command
             .args(["for-each-ref", "--format=%(objectname) %(refname)"])
@@ -47,12 +53,13 @@ impl Repo {
         stdout
             .lines()
             .map(|line| {
-                line.split_once(' ')
-                    .map(|(id, name)| (id.to_owned(), name.to_owned()))
+                let (id, name) = line
+                    .split_once(' ')
                     .ok_or_else(|| Error::UnexpectedOutput {
                         command: "for-each-ref".to_owned(),
                         line: line.to_owned(),
-                    })
+                    })?;
+                Ok((name.parse()?, id.parse()?))
             })
             .collect()
     }
@@ -61,8 +68,9 @@ impl Repo {
     ///
     /// # Errors
     ///
-    /// Returns an error if git cannot be run.
-    pub fn head_target(&self) -> Result<Option<String>, Error> {
+    /// Returns an error if git cannot be run or `HEAD` points at an invalid
+    /// ref name.
+    pub fn head_target(&self) -> Result<Option<RefName>, Error> {
         let mut command = self.git();
         command.args(["symbolic-ref", "--quiet", "HEAD"]);
         let output = command.stdin(Stdio::null()).output()?;
@@ -72,9 +80,7 @@ impl Repo {
         }
         check(&output, "symbolic-ref")?;
         Ok(Some(
-            String::from_utf8_lossy(&output.stdout)
-                .trim_end()
-                .to_owned(),
+            String::from_utf8_lossy(&output.stdout).trim_end().parse()?,
         ))
     }
 

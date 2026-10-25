@@ -10,7 +10,11 @@ authors.workspace = true
 readme = "README.md"
 
 [dependencies]
+grt-core.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

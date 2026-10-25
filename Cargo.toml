@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/dyeoh/git-remote-torrent"
+authors = ["git-remote-torrent contributors"]
+
+[workspace.dependencies]
+grt-core = { path = "crates/grt-core", version = "0.0.0" }
+grt-git = { path = "crates/grt-git", version = "0.0.0" }
+grt-swarm = { path = "crates/grt-swarm", version = "0.0.0" }
+grt-upstream = { path = "crates/grt-upstream", version = "0.0.0" }
+anyhow = "1"
+thiserror = "2"
+
+[workspace.lints.rust]
+missing_docs = "deny"
+unsafe_code = "forbid"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+unwrap_used = "deny"
+wildcard_imports = "deny"
+enum_glob_use = "deny"
+borrowed_box = "deny"
+ptr_arg = "deny"
+should_implement_trait = "deny"
+wrong_self_convention = "deny"
+len_without_is_empty = "deny"
+new_without_default = "deny"
+print_stdout = "deny"
+dbg_macro = "deny"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

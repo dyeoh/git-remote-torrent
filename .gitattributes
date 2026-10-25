@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.pack binary
+*.idx binary
+*.torrent binary

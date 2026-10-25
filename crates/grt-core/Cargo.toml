@@ -1,0 +1,16 @@
+[package]
+name = "grt-core"
+description = "Signed ref manifests, Ed25519 trust store and URL parsing for git-remote-torrent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

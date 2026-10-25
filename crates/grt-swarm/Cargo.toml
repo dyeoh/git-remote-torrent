@@ -1,0 +1,17 @@
+[package]
+name = "grt-swarm"
+description = "DHT, BitTorrent and LAN discovery layer for git-remote-torrent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+[dependencies]
+grt-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

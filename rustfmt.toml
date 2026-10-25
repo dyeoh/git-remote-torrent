@@ -1,0 +1,8 @@
+# Google Rust style guide: 100 columns, lowercase hex, formatted macro matchers.
+# Options marked (nightly) are applied by CI's `cargo +nightly fmt --check`;
+# stable rustfmt warns about and ignores them.
+max_width = 100
+hex_literal_case = "Lower"            # (nightly)
+format_macro_matchers = true          # (nightly)
+imports_granularity = "Module"        # (nightly) one module per `use`
+group_imports = "StdExternalCrate"    # (nightly)

@@ -1,0 +1,10 @@
+[book]
+title = "git-remote-torrent"
+language = "en"
+src = "."
+
+[build]
+build-dir = "book"
+
+[output.html]
+git-repository-url = "https://github.com/dyeoh/git-remote-torrent"

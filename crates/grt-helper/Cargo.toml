@@ -1,0 +1,21 @@
+[package]
+name = "grt-helper"
+description = "Git remote helper for torrent:: and torrent:// URLs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+
+[dependencies]
+anyhow.workspace = true
+grt-core.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "git-remote-torrent"
+path = "src/main.rs"

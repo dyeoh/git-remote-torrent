@@ -1,0 +1,22 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: Include the command you ran. }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: What you expected }
+    validations: { required: true }
+  - type: textarea
+    id: trace
+    attributes:
+      label: Trace output
+      description: Re-run with `GIT_TRACE=1 RUST_LOG=debug` and paste stderr.
+      render: text
+  - type: input
+    id: version
+    attributes: { label: Versions, placeholder: "git-remote-torrent 0.1.0, git 2.47, macOS 15" }
+    validations: { required: true }

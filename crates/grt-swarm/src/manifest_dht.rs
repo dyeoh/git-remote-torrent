@@ -58,7 +58,7 @@ impl ManifestDht {
             *signed.signature(),
             signed.value(),
             signed.seq().get(),
-            Some(signed.salt()),
+            bep44_salt(signed.salt()),
         );
         match self.dht.put_mutable(item, cas.map(Seq::get)).await {
             Ok(_) => Ok(()),
@@ -83,7 +83,7 @@ impl ManifestDht {
     ) -> Result<Option<SignedManifest>, Error> {
         let Some(item) = self
             .dht
-            .get_mutable_most_recent(&key.to_bytes(), Some(salt))
+            .get_mutable_most_recent(&key.to_bytes(), bep44_salt(salt))
             .await
         else {
             return Ok(None);
@@ -99,4 +99,11 @@ impl ManifestDht {
         )?;
         Ok(Some(signed))
     }
+}
+
+/// BEP 44 treats an empty salt as no salt: it is left out of both the
+/// signature and the DHT target. `mainline` would sign `Some(b"")` as
+/// `4:salt0:`, which matches neither grt-core's signature nor other clients.
+fn bep44_salt(salt: &[u8]) -> Option<&[u8]> {
+    (!salt.is_empty()).then_some(salt)
 }

@@ -4,6 +4,14 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Each ignore states why the advisory cannot be reached and when to remove it.
+ignore = [
+  # ringbuf 0.4.8 via librqbit-utp 0.7.0 (latest): double free if an element's
+  # Drop panics. librqbit-utp's only ring buffer holds u8 (stream_tx.rs:
+  # SharedRb<Heap<u8>>), whose Drop cannot panic, and grt-swarm listens
+  # TCP-only. Remove once librqbit-utp depends on ringbuf >= 0.5.2.
+  { id = "RUSTSEC-2026-0293", reason = "unreachable: elements are u8; uTP unused" },
+]
 
 [licenses]
 version = 2

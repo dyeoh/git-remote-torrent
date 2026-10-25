@@ -20,10 +20,10 @@ pub(crate) fn run(args: &SignArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::R
     for (name, id) in repo.refs(PUBLISHED_REFS)? {
         manifest.insert_ref(name, id)?;
     }
-    if let Some(head) = repo.head_target()? {
-        if manifest.refs().contains_key(&head) {
-            manifest.set_head(Some(head))?;
-        }
+    if let Some(head) = repo.head_target()?
+        && manifest.refs().contains_key(&head)
+    {
+        manifest.set_head(Some(head))?;
     }
     manifest.set_upstream(match &args.upstream {
         Some(upstream) => Some(upstream.clone()),

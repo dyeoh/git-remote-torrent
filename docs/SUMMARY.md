@@ -10,6 +10,7 @@
 
 # Reference
 - [URL syntax](reference/url-syntax.md)
+- [Manifest format](reference/manifest-format.md)
 - [Versioning & compatibility](reference/versioning.md)
 
 # Explanation

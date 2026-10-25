@@ -31,8 +31,9 @@ are added. Tooling enforces whatever it can (`rustfmt.toml`, `[workspace.lints]`
   **All peer data is hostile.**
 - Never use `unwrap()`; clippy denies it outside tests. Use `expect("why this cannot
   fail")`, or pattern matching instead of check-then-unwrap.
-- Fallible public functions, and builder-style functions whose result is easy to drop by
-  mistake, get `#[must_use]`.
+- Add `#[must_use]` to functions whose ignored result is likely a bug, such as builders
+  and lazy values. `Result` is already `#[must_use]`. Clippy's blanket
+  `must_use_candidate` lint is turned off because it fires on every getter.
 
 ## API design
 

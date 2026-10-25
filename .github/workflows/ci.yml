@@ -57,7 +57,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-llvm-cov
-      - run: cargo llvm-cov nextest --workspace --locked --lcov --output-path lcov.info
+      - run: cargo llvm-cov nextest --workspace --locked --no-tests=pass --lcov --output-path lcov.info
       - run: cargo test --workspace --doc --locked
       - uses: actions/upload-artifact@v4
         with:

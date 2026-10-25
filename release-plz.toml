@@ -3,6 +3,3 @@
 changelog_config = "cliff.toml"
 git_release_enable = false # release.yml creates the GitHub Release with binaries
 publish = false            # flip to true once crate names are reserved on crates.io
-
-[changelog]
-protect_breaking_commits = true

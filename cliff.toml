@@ -18,6 +18,7 @@ trim = true
 [git]
 conventional_commits = true
 filter_unconventional = true
+protect_breaking_commits = true
 commit_parsers = [
   { message = "^feat", group = "Added" },
   { message = "^fix", group = "Fixed" },

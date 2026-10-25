@@ -44,7 +44,10 @@ The rules live in the `[bump]` section of `cliff.toml`. The release flow
 2. **Merging the release PR** tags `vX.Y.Z` on `main`. The `Release` workflow then builds
    binaries for four targets, records build provenance, signs `SHA256SUMS` with cosign
    and publishes a GitHub Release whose notes come from the changelog.
-3. **Milestone releases** (0.2, 0.3, …) are started by hand. Run the workflow from the
+3. **If a release build fails** after the tag exists, fix `release.yml` on `main`, then
+   rebuild that tag with `gh workflow run release.yml -f tag=vX.Y.Z`. Pull requests that
+   change `release.yml` run the build matrix as a dry run first.
+4. **Milestone releases** (0.2, 0.3, …) are started by hand. Run the workflow from the
    Actions tab with `version` set, for example `v0.2.0`.
 
 The release PR is opened with the workflow's own token, so GitHub doesn't run CI on it.

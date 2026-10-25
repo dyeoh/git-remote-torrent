@@ -12,11 +12,14 @@
 
 ## Data model
 
-A **signed ref manifest** is a BEP 44 mutable item, keyed by the publisher's Ed25519 key:
+A **signed ref manifest** is a BEP 44 mutable item, keyed by the publisher's Ed25519
+key and an optional salt:
 
 ```
-{ v, seq, upstream_url, head, refs | refs_root, packs: [infohash, …] }
+{ v, refs: {name: oid}, packs: <infohash…>, head?, up? }   signed with (salt, seq)
 ```
+
+See the [manifest format reference](../reference/manifest-format.md).
 
 `packs` is an ordered chain of self-contained packfiles. Each one is distributed as a
 BitTorrent v2 torrent. `git torrent compact` folds the chain back into one base pack.

@@ -180,8 +180,17 @@ fn sign_status_and_trust_flow() {
     sandbox.ok(&["key", "generate"]);
     let out = sandbox.ok(&["sign"]);
     assert!(
-        out.contains("Signed manifest #1 with 2 ref(s), HEAD -> refs/heads/main."),
+        out.contains("Signed manifest #1 with 2 ref(s) and 1 pack(s), HEAD -> refs/heads/main."),
         "{out}"
+    );
+    assert!(
+        out.contains("Added pack "),
+        "the first manifest gets a full pack: {out}"
+    );
+    let resigned = sandbox.ok(&["sign"]);
+    assert!(
+        resigned.contains("#2 with 2 ref(s) and 1 pack(s)") && !resigned.contains("Added pack"),
+        "nothing new to pack, so the chain does not grow: {resigned}"
     );
 
     let status = sandbox.ok(&["status"]);
@@ -205,6 +214,12 @@ fn sign_status_and_trust_flow() {
     );
 
     sandbox.commit("CHANGES");
+    let grown = sandbox.ok(&["sign"]);
+    assert!(
+        grown.contains("Added pack ") && grown.contains("and 2 pack(s)"),
+        "a new commit adds a second pack: {grown}"
+    );
+    sandbox.commit("MORE");
     let status = sandbox.ok(&["status"]);
     assert!(
         status.contains("(local: "),

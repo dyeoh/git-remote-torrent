@@ -10,4 +10,4 @@ mod pack_swarm;
 
 pub use crate::error::Error;
 pub use crate::manifest_dht::ManifestDht;
-pub use crate::pack_swarm::{PackSwarm, SwarmConfig};
+pub use crate::pack_swarm::{PackSwarm, SwarmConfig, info_hash_of};

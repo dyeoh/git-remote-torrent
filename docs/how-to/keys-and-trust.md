@@ -47,14 +47,31 @@ serve. It only accepts HTTPS, and it skips RSA and ECDSA keys. Once imported, th
 stay in your trust store, so manifests can still be verified after the forge account or
 the forge itself is gone.
 
-## Sign and check
+## Sign, seed and check
 
 ```sh
-git torrent sign                 # signs refs/heads/* and refs/tags/*, records HEAD and upstream
-git torrent sign --name project  # publish as torrent://<key>/project
-git torrent status               # shows the manifest, whether its key is trusted, and differences from your local refs
+git torrent sign                 # sign refs/heads/* and refs/tags/*, with HEAD and the upstream
+git torrent sign --name project  # publish as torrent://<key>/project instead
+git torrent seed                 # sign, publish to the DHT, and seed the packs until Ctrl-C
+git torrent status               # the manifest, whether its key is trusted, and drift from local refs
 ```
 
+**The pack chain.** Each `sign` checks whether your refs reach objects that the previous
+manifest's packs don't contain. If they do, it writes one new pack holding just those
+objects and appends it to the manifest's `packs` list. Packs are stored at
+`.git/torrent/packs/<infohash>/pack`. Signing with no new commits adds no pack.
+
+**Seeding.** `git torrent seed` signs and then seeds every pack in the chain. It
+publishes the manifest to the Mainline DHT under your key (and `--name`, if given), and
+republishes it every 30 minutes while it runs, because DHT items expire after about two
+hours. If a newer manifest is already published under the same key and name (for
+example, from another machine), it stops rather than overwrite it.
+
+| Option | Use |
+|---|---|
+| `--listen 0.0.0.0:6881` | Fixed address for peers to connect to; by default a random port |
+| `--dht-bootstrap HOST:PORT` | Join a private DHT instead of the public one (repeatable) |
+| `--no-peer-dht` | Don't announce packs on the BitTorrent DHT; peers must be given the listen address |
+
 The signed manifest is cached at `.git/torrent/manifest` and is re-verified every time it
-is read. Each `sign` with the same key and name increments the sequence number.
-Publishing to the swarm arrives in 0.2.
+is read. Each `sign` or `seed` with the same key and name increments the sequence number.

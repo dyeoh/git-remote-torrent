@@ -17,7 +17,7 @@ cargo install --git https://github.com/dyeoh/git-remote-torrent grt-helper grt-c
 git clone torrent::https://github.com/octocat/Hello-World.git
 cd Hello-World
 git torrent key use ~/.ssh/id_ed25519   # sign with the key your forge already knows
-git torrent sign && git torrent status
+git torrent seed                        # sign, publish to the DHT, seed until Ctrl-C
 ```
 
 ## Quickstart (planned)

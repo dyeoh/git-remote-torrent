@@ -9,6 +9,7 @@ mod cli;
 mod compact;
 mod export;
 mod key;
+mod publish;
 mod reconcile;
 mod republish;
 mod seed;
@@ -37,6 +38,8 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Export(args) => export::run(&args, cwd, out),
         Command::Compact(args) => compact::run(&args, cwd, out),
         Command::Adopt(args) => adopt::run(&args, cwd, out),
+        Command::Publish(args) => publish::run(&args, cwd, out),
+        Command::VerifyMirror(args) => publish::verify_mirror(&args, cwd, out),
         Command::Republish(args) => republish::run(&args, out),
         Command::Reconcile(args) => reconcile::run(&args, cwd, out),
     }

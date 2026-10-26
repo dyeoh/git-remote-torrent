@@ -37,6 +37,12 @@ pub(crate) enum Command {
     /// laptop): fetch its newest manifest and pack chain, verify them, and
     /// set them up so `sign` and `git push` continue the chain.
     Adopt(AdoptArgs),
+    /// Publish the signed manifest to the DHT once and exit, without seeding.
+    /// For CI: packs come from the manifest's mirrors.
+    Publish(PublishArgs),
+    /// Download every pack of the signed manifest from each mirror and check
+    /// both of its infohashes, before a manifest naming the mirror goes out.
+    VerifyMirror(VerifyMirrorArgs),
     /// Store the newest verified manifest of each address on the DHT again,
     /// so it does not expire. Needs no key: anyone can keep a repository
     /// findable.
@@ -164,6 +170,20 @@ pub(crate) struct AdoptArgs {
     /// Join a private DHT through this node instead of the public one.
     #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
     pub(crate) dht_bootstrap: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PublishArgs {
+    /// Join a private DHT through this node instead of the public one.
+    #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
+    pub(crate) dht_bootstrap: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct VerifyMirrorArgs {
+    /// Mirror base URLs to check; defaults to the manifest's mirrors.
+    #[arg(value_name = "URL")]
+    pub(crate) mirrors: Vec<String>,
 }
 
 #[derive(Debug, Args)]

@@ -15,6 +15,8 @@ grt-core.workspace = true
 # default http-api-client feature is not needed.
 librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
 mainline = "8"
+sha1 = "0.10"
+sha2 = "0.10"
 thiserror.workspace = true
 tokio = { version = "1", features = ["rt", "time"] }
 ureq = { version = "3", default-features = false, features = ["rustls"] }

@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use grt_core::InfoHash;
-use librqbit::spawn_utils::BlockingSpawner;
+use grt_core::{InfoHash, InfoHashV2};
 use librqbit::{
-    AddTorrent, AddTorrentOptions, CreateTorrentOptions, DhtSessionConfig, ListenerMode,
-    ListenerOptions, Session, SessionOptions, create_torrent,
+    AddTorrent, AddTorrentOptions, DhtSessionConfig, ListenerMode, ListenerOptions, Session,
+    SessionOptions,
 };
 
 use crate::error::Error;
+use crate::hybrid::{HybridTorrent, PACK_FILE, hybrid_torrent};
 
 /// How a [`PackSwarm`] connects to peers.
 #[derive(Debug, Clone)]
@@ -79,15 +79,23 @@ impl PackSwarm {
         Ok(PackSwarm { session })
     }
 
-    /// Creates a torrent for the pack file at `pack`, seeds it from where it
-    /// is, and returns its infohash.
+    /// Seeds the pack file at `pack` from where it is, as a hybrid torrent
+    /// (ADR-0008), and returns its v1 infohash. The file must be named `pack`.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Torrent`] if hashing or seeding fails.
+    /// Returns [`Error::Torrent`] if the file is named otherwise, or hashing
+    /// or seeding fails.
     pub async fn seed(&self, pack: &Path) -> Result<InfoHash, Error> {
-        let created = torrent_for(pack).await?;
-        let info_hash = InfoHash::from(created.info_hash().0);
+        // The torrent names its file `pack`; librqbit would otherwise wait
+        // forever to download a file that is not where it looks.
+        if pack.file_name().and_then(|name| name.to_str()) != Some(PACK_FILE) {
+            return Err(Error::Torrent(format!(
+                "{} must be named `{PACK_FILE}` to be seeded",
+                pack.display()
+            )));
+        }
+        let torrent = hashes_of(pack).await?;
         let folder = pack
             .parent()
             .unwrap_or(Path::new("."))
@@ -96,7 +104,7 @@ impl PackSwarm {
         let handle = self
             .session
             .add_torrent(
-                AddTorrent::from_bytes(created.as_bytes().map_err(torrent_error)?),
+                AddTorrent::from_bytes(torrent.bytes),
                 Some(AddTorrentOptions {
                     overwrite: true,
                     output_folder: Some(folder),
@@ -109,7 +117,7 @@ impl PackSwarm {
             .ok_or_else(|| Error::Torrent("seeding returned no torrent handle".to_owned()))?;
         // Completes once the existing file has been verified against the torrent.
         handle.wait_until_completed().await.map_err(torrent_error)?;
-        Ok(info_hash)
+        Ok(torrent.v1)
     }
 
     /// Downloads the pack with infohash `pack` into its own directory under
@@ -168,29 +176,44 @@ impl PackSwarm {
     }
 }
 
-/// Computes the BitTorrent v1 infohash a pack file would be seeded under,
-/// without starting a session. The torrent is named after the file, so the
-/// same bytes under a different file name give a different infohash.
+/// Computes the v1 and v2 infohashes a pack file is seeded under, without
+/// starting a session. The torrent is always named `pack`, so they depend
+/// only on the file's bytes.
 ///
 /// # Errors
 ///
-/// Returns [`Error::Torrent`] if the file cannot be read and hashed.
-pub async fn info_hash_of(pack: &Path) -> Result<InfoHash, Error> {
-    Ok(InfoHash::from(torrent_for(pack).await?.info_hash().0))
+/// Returns [`Error::Io`] if the file cannot be read.
+pub async fn hashes_of(pack: &Path) -> Result<HybridTorrent, Error> {
+    let pack = pack.to_path_buf();
+    tokio::task::spawn_blocking(move || hybrid_torrent(&pack))
+        .await
+        .map_err(torrent_error)?
 }
 
-async fn torrent_for(pack: &Path) -> Result<librqbit::CreateTorrentResult, Error> {
-    let name = pack.file_name().and_then(|name| name.to_str());
-    create_torrent(
-        pack,
-        CreateTorrentOptions {
-            name,
-            ..Default::default()
-        },
-        &BlockingSpawner::new(1),
-    )
-    .await
-    .map_err(torrent_error)
+/// Checks that the file at `pack` hashes to `v1` and, if given, `v2`.
+///
+/// # Errors
+///
+/// Returns [`Error::Mismatch`] naming the hash that differs.
+pub async fn verify_pack(pack: &Path, v1: InfoHash, v2: Option<InfoHashV2>) -> Result<(), Error> {
+    let found = hashes_of(pack).await?;
+    if found.v1 != v1 {
+        return Err(Error::Mismatch(format!(
+            "{} has v1 infohash {}, not {v1}",
+            pack.display(),
+            found.v1
+        )));
+    }
+    if let Some(v2) = v2
+        && found.v2 != v2
+    {
+        return Err(Error::Mismatch(format!(
+            "{} has SHA-256 (v2) infohash {}, not {v2}",
+            pack.display(),
+            found.v2
+        )));
+    }
+    Ok(())
 }
 
 /// A pack torrent holds exactly one file.

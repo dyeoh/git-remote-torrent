@@ -3,10 +3,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use grt_core::InfoHash;
+use grt_core::{InfoHash, InfoHashV2};
 
 use crate::error::Error;
-use crate::pack_swarm::info_hash_of;
+use crate::pack_swarm::verify_pack;
 
 /// Largest pack accepted from a mirror, so a hostile one cannot fill the disk.
 pub const MAX_MIRROR_PACK_LEN: u64 = 4 << 30;
@@ -15,8 +15,9 @@ pub const MAX_MIRROR_PACK_LEN: u64 = 4 << 30;
 /// (`<base>/<infohash>.pack`) into its own directory under `out_dir`, and
 /// returns the path of the pack file.
 ///
-/// The file is accepted only if it hashes to `pack` as a torrent would, so
-/// mirrors are as untrusted as peers.
+/// The file is accepted only if its hybrid torrent has infohash `pack` and,
+/// when the manifest lists one, SHA-256 infohash `pack_v2`, so mirrors are as
+/// untrusted as peers.
 ///
 /// # Errors
 ///
@@ -25,6 +26,7 @@ pub const MAX_MIRROR_PACK_LEN: u64 = 4 << 30;
 pub async fn fetch_from_mirror(
     base: &str,
     pack: InfoHash,
+    pack_v2: Option<InfoHashV2>,
     out_dir: &Path,
     timeout: Duration,
 ) -> Result<PathBuf, Error> {
@@ -40,11 +42,10 @@ pub async fn fetch_from_mirror(
     download
         .await
         .map_err(|error| Error::Mirror(format!("GET {url}: {error}")))??;
-    let found = info_hash_of(&file).await?;
-    if found != pack {
+    if let Err(error) = verify_pack(&file, pack, pack_v2).await {
         fs::remove_dir_all(&folder)?;
         return Err(Error::Mirror(format!(
-            "{url} served a pack with infohash {found}, not {pack}"
+            "{url} served a pack that fails: {error}"
         )));
     }
     Ok(file)

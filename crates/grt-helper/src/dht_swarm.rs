@@ -9,7 +9,7 @@ use std::{fs, io};
 
 use grt_core::{Manifest, ObjectId, PublicKey, RefName, SignedManifest};
 use grt_git::Repo;
-use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig, fetch_from_mirror};
+use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack};
 use grt_upstream::{PushResult, PushSpec, PushStatus};
 
 use crate::error::Error;
@@ -203,7 +203,9 @@ impl DhtSwarm {
             fs::create_dir_all(&applied)?;
             let mut fetched = Fetched::default();
             // Oldest first: each pack's links resolve against the ones before it.
-            for &pack in manifest.packs() {
+            for (index, &pack) in manifest.packs().iter().enumerate() {
+                // Present for chains signed since 0.4 (ADR-0008).
+                let sha256 = manifest.packs_v2().map(|v2| v2[index]);
                 let marker = applied.join(pack.to_string());
                 if marker.exists() {
                     continue;
@@ -215,10 +217,14 @@ impl DhtSwarm {
                         .fetch(pack, &self.settings.peers, &incoming, swarm_timeout)
                         .await
                     {
-                        Ok(path) => {
-                            fetched.from_peers += 1;
-                            file = Some(path);
-                        }
+                        // Peers check SHA-1 pieces; check SHA-256 here too.
+                        Ok(path) => match verify_pack(&path, pack, sha256).await {
+                            Ok(()) => {
+                                fetched.from_peers += 1;
+                                file = Some(path);
+                            }
+                            Err(error) => failures.push(format!("peers: {error}")),
+                        },
                         Err(error) => failures.push(format!("peers: {error}")),
                     }
                 }
@@ -226,7 +232,9 @@ impl DhtSwarm {
                     if file.is_some() {
                         break;
                     }
-                    match fetch_from_mirror(mirror, pack, &incoming, self.settings.timeout).await {
+                    match fetch_from_mirror(mirror, pack, sha256, &incoming, self.settings.timeout)
+                        .await
+                    {
                         Ok(path) => {
                             fetched.from_mirrors += 1;
                             file = Some(path);

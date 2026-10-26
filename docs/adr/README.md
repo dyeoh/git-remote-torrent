@@ -11,5 +11,6 @@ edited. A later decision supersedes it with a new ADR.
 | [0003](0003-non-deterministic-packs.md) | Packs need not be deterministic | Accepted; v2 transport superseded by 0006 |
 | [0004](0004-incremental-pack-chain.md) | Incremental pack chain with compaction | Accepted |
 | [0005](0005-git-cliff-release-flow.md) | Release flow with git-cliff instead of release-plz | Accepted |
-| [0006](0006-bittorrent-v1-and-bep44-value-layout.md) | BitTorrent v1 for packs; manifest signed as a byte string | Accepted |
+| [0006](0006-bittorrent-v1-and-bep44-value-layout.md) | BitTorrent v1 for packs; manifest signed as a byte string | Accepted; `packs2` filled by 0008 |
 | [0007](0007-http-mirrors-instead-of-bep19.md) | HTTP mirrors verified by infohash, instead of BEP 19 web seeds | Accepted |
+| [0008](0008-hybrid-torrents-and-sha256.md) | Hybrid v1/v2 torrents: every pack verified with SHA-256 | Accepted |

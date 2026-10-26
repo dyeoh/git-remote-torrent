@@ -4,7 +4,7 @@
 |-------|----------------|-------|
 | `grt-core` | Manifest schema (bencode), Ed25519 signing, trust store, URL parsing | no |
 | `grt-git` | Wrapper over git plumbing via the installed `git` binary | no |
-| `grt-swarm` | Mainline DHT (BEP 44/46), BitTorrent v1 packs, BEP 19 web seeds, mDNS | yes |
+| `grt-swarm` | Mainline DHT (BEP 44/46), hybrid v1/v2 pack torrents, HTTP mirrors, local discovery | yes |
 | `grt-upstream` | Canonical HTTPS/SSH remote; forge key discovery | yes |
 | `grt-helper` | `git-remote-torrent`: the remote-helper protocol | yes |
 | `grt-cli` | `git-torrent`: key, trust, sign, seed, status, export, compact, reconcile | yes |
@@ -21,9 +21,13 @@ key and an optional salt:
 
 See the [manifest format reference](../reference/manifest-format.md).
 
-`packs` is an ordered chain of self-contained packfiles. Each one is distributed as a
-BitTorrent v1 torrent ([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). `git torrent compact` folds the chain back into one base pack, and `sign` does so by
-itself when the next pack id would push the manifest past 1000 bytes.
+`packs` is an ordered chain of self-contained packfiles. Each one is a BEP 52 hybrid
+torrent, transferred over BitTorrent v1
+([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). The manifest also
+signs each pack's SHA-256 (v2) infohash in `packs2`, which is checked after every
+download ([ADR-0008](../adr/0008-hybrid-torrents-and-sha256.md)).
+`git torrent compact` folds the chain back into one base pack, and `sign` does so by
+itself when the next pack would push the manifest past 1000 bytes.
 
 Each pack holds the objects reachable from the new tips but not from the previous
 manifest's tips (`Repo::write_pack`). Receivers index the chain oldest first with

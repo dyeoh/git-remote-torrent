@@ -1,12 +1,16 @@
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
-use std::fs;
 use std::net::SocketAddr;
+use std::os::fd::AsFd;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::time::Duration;
+use std::{fs, io};
 
-use grt_core::{Manifest, ObjectId, PublicKey, SignedManifest};
+use grt_core::{Manifest, ObjectId, PublicKey, RefName, SignedManifest};
 use grt_git::Repo;
 use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig, fetch_from_mirror};
+use grt_upstream::{PushResult, PushSpec, PushStatus};
 
 use crate::error::Error;
 use crate::swarm::Swarm;
@@ -105,6 +109,7 @@ pub struct DhtSwarm {
     settings: Settings,
     /// Set once the manifest has been looked up, found or not.
     resolved: bool,
+    publishes: bool,
     manifest: Option<SignedManifest>,
 }
 
@@ -131,8 +136,23 @@ impl DhtSwarm {
             salt: salt.to_vec(),
             settings,
             resolved: false,
+            publishes: false,
             manifest: None,
         })
+    }
+
+    /// Lets pushes sign new manifests for this address with the signing key
+    /// (`git torrent key`), which must be the address's key.
+    #[must_use]
+    pub fn publishing(mut self, publishes: bool) -> Self {
+        self.publishes = publishes;
+        self
+    }
+
+    fn repo(&self) -> Result<&Repo, Error> {
+        self.repo
+            .as_ref()
+            .ok_or_else(|| Error::Unavailable("this needs a local repository".to_owned()))
     }
 
     async fn resolve(&self) -> Result<Option<SignedManifest>, Error> {
@@ -237,11 +257,58 @@ impl DhtSwarm {
         repo.git_dir().join("torrent").join("fetched").join(name)
     }
 
-    /// The remembered manifest, if it is for this address and still verifies.
+    /// The newest remembered manifest for this address that still verifies:
+    /// the last one fetched, or the last one signed here by its publisher.
     fn cached(&self) -> Option<SignedManifest> {
-        let bytes = fs::read(self.cache_path(self.repo.as_ref()?)).ok()?;
-        let cached = SignedManifest::decode(&bytes).ok()?;
-        (cached.public_key() == self.key && cached.salt() == self.salt).then_some(cached)
+        let repo = self.repo.as_ref()?;
+        let signed_here = repo.git_dir().join("torrent").join("manifest");
+        [self.cache_path(repo), signed_here]
+            .iter()
+            .filter_map(|path| SignedManifest::decode(&fs::read(path).ok()?).ok())
+            .filter(|cached| cached.public_key() == self.key && cached.salt() == self.salt)
+            .max_by_key(SignedManifest::seq)
+    }
+
+    /// Checks one push spec against the published refs. Returns the
+    /// `git torrent sign` arguments that apply it, or why it is rejected.
+    fn sign_args(
+        repo: &Repo,
+        spec: &PushSpec,
+        published: &BTreeMap<RefName, ObjectId>,
+        fast_forward_only: bool,
+    ) -> Result<[String; 2], String> {
+        let dst: RefName = spec.dst.parse().map_err(|error| format!("{error}"))?;
+        if spec.src.is_empty() {
+            return Ok(["--delete".to_owned(), dst.to_string()]);
+        }
+        let new = repo
+            .rev_parse(&spec.src)
+            .map_err(|_| format!("cannot resolve {}", spec.src))?;
+        if fast_forward_only
+            && !spec.force
+            && let Some(old) = published.get(&dst)
+            && *old != new
+        {
+            match repo.is_ancestor(old, &new) {
+                Ok(true) => {}
+                Ok(false) => return Err("non-fast-forward".to_owned()),
+                // The published tip is not here: the remote has history we lack.
+                Err(_) => return Err("fetch first".to_owned()),
+            }
+        }
+        Ok(["--update".to_owned(), format!("{dst}={new}")])
+    }
+
+    /// True if `git torrent seed` is running for this repository.
+    fn seeder_running(repo: &Repo) -> bool {
+        let Ok(pid) = fs::read_to_string(repo.git_dir().join("torrent").join("seed.pid")) else {
+            return false;
+        };
+        Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     }
 }
 
@@ -316,6 +383,69 @@ impl Swarm for DhtSwarm {
             manifest.seq().get()
         );
         Ok(())
+    }
+
+    fn publishes(&self) -> bool {
+        self.publishes
+    }
+
+    fn push(
+        &mut self,
+        specs: &[PushSpec],
+        fast_forward_only: bool,
+    ) -> Result<Vec<PushResult>, Error> {
+        let published = self
+            .manifest()?
+            .map(|current| current.manifest().refs().clone())
+            .unwrap_or_default();
+        let repo = self.repo()?;
+        let mut command = Command::new("git");
+        command.args(["torrent", "sign"]);
+        if !self.salt.is_empty() {
+            command.args(["--name", &String::from_utf8_lossy(&self.salt)]);
+        }
+        let mut checked = Vec::new();
+        for spec in specs {
+            let outcome = DhtSwarm::sign_args(repo, spec, &published, fast_forward_only);
+            if let Ok(args) = &outcome {
+                command.args(args);
+            }
+            checked.push((spec.dst.clone(), outcome));
+        }
+        let signed = if checked.iter().any(|(_, outcome)| outcome.is_ok()) {
+            // Stdout belongs to the protocol; sign's report goes to the user.
+            let status = command
+                .stdin(Stdio::null())
+                .stdout(io::stderr().as_fd().try_clone_to_owned()?)
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(format!("`git torrent sign` failed ({status})"))
+            }
+        } else {
+            Ok(())
+        };
+        if signed.is_ok() && checked.iter().any(|(_, outcome)| outcome.is_ok()) {
+            if DhtSwarm::seeder_running(repo) {
+                eprintln!("The running `git torrent seed` will publish the new manifest.");
+            } else {
+                eprintln!("Run `git torrent seed` to publish the new manifest to the swarm.");
+            }
+        }
+        // The next lookup must see the manifest just signed.
+        self.resolved = false;
+        Ok(checked
+            .into_iter()
+            .map(|(dst, outcome)| PushResult {
+                dst,
+                status: match (outcome, &signed) {
+                    (Ok(_), Ok(())) => PushStatus::Ok,
+                    (Ok(_), Err(reason)) => PushStatus::Rejected(reason.clone()),
+                    (Err(reason), _) => PushStatus::Rejected(reason),
+                },
+            })
+            .collect())
     }
 }
 

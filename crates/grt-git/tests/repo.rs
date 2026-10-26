@@ -223,3 +223,31 @@ fn unknown_exclusions_are_ignored() {
         .expect("an exclusion git has never seen cannot fail the pack");
     assert_eq!(count, 3);
 }
+
+#[test]
+fn rev_parse_and_ancestry() {
+    let dir = TempDir::new().expect("create temp dir");
+    git(dir.path(), &["init", "-q", "-b", "main"]);
+    fs::write(dir.path().join("a"), "a").expect("write");
+    git(dir.path(), &["add", "a"]);
+    git(dir.path(), &["commit", "-q", "-m", "a"]);
+    fs::write(dir.path().join("b"), "b").expect("write");
+    git(dir.path(), &["add", "b"]);
+    git(dir.path(), &["commit", "-q", "-m", "b"]);
+    let repo = Repo::discover(dir.path()).expect("repo");
+
+    let head = repo.rev_parse("refs/heads/main").expect("main resolves");
+    let parent = repo.rev_parse("main~1").expect("parent resolves");
+    assert!(
+        repo.rev_parse("refs/heads/missing").is_err(),
+        "missing refs fail"
+    );
+    assert!(
+        repo.is_ancestor(&parent, &head).expect("query"),
+        "parent precedes head"
+    );
+    assert!(
+        !repo.is_ancestor(&head, &parent).expect("query"),
+        "not the other way"
+    );
+}

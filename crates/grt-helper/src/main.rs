@@ -25,16 +25,18 @@ fn main() -> anyhow::Result<()> {
     match &remote {
         RemoteUrl::Hybrid { upstream } => {
             let swarm = match torrent_address(name)? {
-                Some((key, salt)) => {
-                    Some(DhtSwarm::new(repo, key, &salt, Settings::from_config()?)?)
-                }
+                Some((key, salt)) => Some(
+                    DhtSwarm::new(repo, key, &salt, Settings::from_config()?)?
+                        .publishing(publishes(name)?),
+                ),
                 None => None,
             };
             let mut router = Router::hybrid(GitUpstream::new(upstream), swarm);
             grt_helper::run(&mut router, stdin, stdout)
         }
         RemoteUrl::Swarm { key, salt } => {
-            let swarm = DhtSwarm::new(repo, *key, salt, Settings::from_config()?)?;
+            let swarm = DhtSwarm::new(repo, *key, salt, Settings::from_config()?)?
+                .publishing(publishes(name)?);
             let mut router: Router<GitUpstream, DhtSwarm> = Router::swarm(swarm);
             grt_helper::run(&mut router, stdin, stdout)
         }
@@ -56,5 +58,19 @@ fn torrent_address(name: Option<&str>) -> anyhow::Result<Option<(grt_core::Publi
     match address.parse()? {
         RemoteUrl::Swarm { key, salt } => Ok(Some((key, salt))),
         _ => bail!("{key} must be a torrent:// address, not {address:?}"),
+    }
+}
+
+/// True if pushes to the remote should sign new manifests
+/// (`remote.<name>.torrentPublish`).
+fn publishes(name: Option<&str>) -> anyhow::Result<bool> {
+    let Some(name) = name else {
+        return Ok(false);
+    };
+    let key = format!("remote.{name}.torrentPublish");
+    match grt_git::config_all(&key)?.pop().as_deref() {
+        None | Some("false" | "no" | "off" | "0") => Ok(false),
+        Some("true" | "yes" | "on" | "1") => Ok(true),
+        Some(other) => bail!("{key} must be a boolean, not {other:?}"),
     }
 }

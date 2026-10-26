@@ -48,3 +48,15 @@ the new end of the chain.
 
 Pure P2P remotes (`torrent://`) follow step 3 always. Exposing an upstream and a manifest
 that disagree side by side (`refs/torrent/*`) is planned.
+
+## Push
+
+The helper is short-lived, so it never seeds. `Router::push` sends the push to the
+upstream (hybrid) or checks it for fast-forwards against the manifest (pure P2P). Then,
+if `remote.<name>.torrentPublish` is set, it runs `git torrent sign --update/--delete`
+with the accepted refs, which extends the pack chain and saves the new manifest to
+`.git/torrent/manifest`. Signing stays in one place, including the passphrase prompt.
+
+A running `git torrent seed` (it writes `.git/torrent/seed.pid`) polls that file. It seeds
+new packs *before* publishing, so a published manifest never names a pack that no one
+has, and it publishes with the previous `seq` as the BEP 44 `cas`.

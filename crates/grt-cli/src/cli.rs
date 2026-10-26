@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use grt_core::{ObjectId, RefName};
 
 /// Keys, trust and signed manifests for git-remote-torrent.
 #[derive(Debug, Parser)]
@@ -94,6 +95,31 @@ pub(crate) struct SignArgs {
     /// manifest's mirrors are kept.
     #[arg(long = "mirror", value_name = "URL")]
     pub(crate) mirrors: Vec<String>,
+    /// Publish the previous manifest's refs with this one set, instead of
+    /// all local branches and tags. Repeatable; used by `git push`.
+    #[arg(long = "update", value_name = "REF=OID", value_parser = parse_update)]
+    pub(crate) updates: Vec<(RefName, ObjectId)>,
+    /// Publish the previous manifest's refs without this one. Repeatable.
+    #[arg(long = "delete", value_name = "REF")]
+    pub(crate) deletes: Vec<RefName>,
+}
+
+impl SignArgs {
+    /// True if this signs changes to the previous manifest rather than the
+    /// local refs.
+    pub(crate) fn is_update(&self) -> bool {
+        !self.updates.is_empty() || !self.deletes.is_empty()
+    }
+}
+
+fn parse_update(value: &str) -> Result<(RefName, ObjectId), String> {
+    let (name, id) = value
+        .split_once('=')
+        .ok_or_else(|| format!("expected REF=OID, got {value:?}"))?;
+    Ok((
+        name.parse().map_err(|error| format!("{error}"))?,
+        id.parse().map_err(|error| format!("{error}"))?,
+    ))
 }
 
 #[derive(Debug, Args)]

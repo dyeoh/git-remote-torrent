@@ -136,21 +136,61 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
         specs: &[PushSpec],
         options: &TransferOptions,
     ) -> Result<Vec<PushResult>, Error> {
-        match &self.upstream {
-            Some(upstream) => Ok(upstream.push(specs, options)?),
-            None => Ok(specs
+        let swarm = self.swarm.as_mut().filter(|swarm| swarm.publishes());
+        let Some(upstream) = &self.upstream else {
+            // A pure swarm remote: the manifest is the only copy of the refs.
+            return match swarm {
+                Some(swarm) => swarm.push(specs, true),
+                None => Ok(reject_all(
+                    specs,
+                    "this torrent:// remote is not yours to publish; if you hold its key, \
+                     set remote.<name>.torrentPublish=true",
+                )),
+            };
+        };
+        let results = upstream.push(specs, options)?;
+        if let Some(swarm) = swarm {
+            // The upstream already enforced its rules; mirror what it accepted.
+            let accepted: Vec<PushSpec> = specs
                 .iter()
-                .map(|spec| PushResult {
-                    dst: spec.dst.clone(),
-                    status: PushStatus::Rejected(
-                        "pushing to torrent:// remotes is not supported yet; \
-                         push to the upstream and run `git torrent seed`"
-                            .to_owned(),
-                    ),
+                .filter(|spec| {
+                    results
+                        .iter()
+                        .any(|result| result.dst == spec.dst && result.status == PushStatus::Ok)
                 })
-                .collect()),
+                .cloned()
+                .collect();
+            if !accepted.is_empty() {
+                match swarm.push(&accepted, false) {
+                    Ok(signed) => {
+                        for result in signed {
+                            if let PushStatus::Rejected(reason) = result.status {
+                                eprintln!(
+                                    "warning: pushed {} to the upstream, but not to the swarm: \
+                                     {reason}",
+                                    result.dst
+                                );
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        eprintln!("warning: pushed to the upstream, but not to the swarm: {error}");
+                    }
+                }
+            }
         }
+        Ok(results)
     }
+}
+
+fn reject_all(specs: &[PushSpec], reason: &str) -> Vec<PushResult> {
+    specs
+        .iter()
+        .map(|spec| PushResult {
+            dst: spec.dst.clone(),
+            status: PushStatus::Rejected(reason.to_owned()),
+        })
+        .collect()
 }
 
 /// True if every object in `wants` is a ref tip in `manifest`.
@@ -229,6 +269,7 @@ mod tests {
         log: Log,
         manifest: Option<SignedManifest>,
         fail: bool,
+        publishes: bool,
     }
 
     impl Swarm for FakeSwarm {
@@ -247,6 +288,28 @@ mod tests {
                 return Err(Error::Unavailable("no peers".to_owned()));
             }
             Ok(())
+        }
+
+        fn publishes(&self) -> bool {
+            self.publishes
+        }
+
+        fn push(
+            &mut self,
+            specs: &[PushSpec],
+            fast_forward_only: bool,
+        ) -> Result<Vec<PushResult>, Error> {
+            let dsts: Vec<&str> = specs.iter().map(|spec| spec.dst.as_str()).collect();
+            self.log
+                .borrow_mut()
+                .push(format!("swarm push {dsts:?} ff={fast_forward_only}"));
+            Ok(specs
+                .iter()
+                .map(|spec| PushResult {
+                    dst: spec.dst.clone(),
+                    status: PushStatus::Ok,
+                })
+                .collect())
         }
     }
 
@@ -275,6 +338,7 @@ mod tests {
             log: log.clone(),
             manifest,
             fail,
+            publishes: true,
         };
         let upstream = FakeUpstream {
             log: log.clone(),
@@ -371,6 +435,7 @@ mod tests {
             log: log.clone(),
             manifest: Some(signed(A)),
             fail: false,
+            publishes: false,
         });
         let refs = router.list(&options).unwrap();
         assert_eq!(names(&refs), ["HEAD", "refs/heads/main"], "manifest refs");
@@ -383,6 +448,49 @@ mod tests {
         assert!(
             matches!(pushed[0].status, PushStatus::Rejected(_)),
             "pushes need an upstream for now"
+        );
+    }
+
+    #[test]
+    fn upstream_push_is_mirrored_into_the_manifest() {
+        let options = TransferOptions::default();
+        let (mut router, log) = router(true, Some(signed(A)), false);
+        router
+            .push(
+                &["refs/heads/main:refs/heads/main".parse().unwrap()],
+                &options,
+            )
+            .unwrap();
+        assert_eq!(
+            *log.borrow(),
+            [
+                "upstream push",
+                r#"swarm push ["refs/heads/main"] ff=false"#
+            ],
+            "the upstream decides; the swarm follows what it accepted"
+        );
+    }
+
+    #[test]
+    fn pure_swarm_push_by_the_publisher_signs_with_fast_forward_checks() {
+        let log = Log::default();
+        let mut router: Router<FakeUpstream, FakeSwarm> = Router::swarm(FakeSwarm {
+            log: log.clone(),
+            manifest: Some(signed(A)),
+            fail: false,
+            publishes: true,
+        });
+        let pushed = router
+            .push(
+                &["refs/heads/main:refs/heads/main".parse().unwrap()],
+                &TransferOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(pushed[0].status, PushStatus::Ok);
+        assert_eq!(
+            *log.borrow(),
+            [r#"swarm push ["refs/heads/main"] ff=true"#],
+            "the manifest is the only copy, so it enforces fast-forwards"
         );
     }
 }

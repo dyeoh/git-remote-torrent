@@ -127,10 +127,16 @@ their infohash.
 - **A mirror for when no peer is online.** [Mirror packs over HTTP](../how-to/http-mirrors.md)
   puts the packs on any static host and signs its URL into the manifest.
 - **The manifest has to stay published.** DHT entries expire about two hours after the
-  last publish, and `seed` republishes every 30 minutes while it runs. Once nothing
-  republishes, new cloners can't find the manifest. Existing clones keep their last
-  verified copy and can still fetch from peers and mirrors.
-- **Not there yet:** helping seed someone else's repository (running `seed` in a clone
-  publishes under *your* key, as a different repository), and keeping manifests
-  republished from an always-on machine. The background daemon in the
-  [roadmap](../explanation/roadmap.md) covers both.
+  last publish, and `seed` republishes every 30 minutes while it runs. When nothing is
+  seeding, anyone can keep the repository findable without its key:
+
+  ```sh
+  git torrent republish torrent://<key>     # e.g. hourly from cron or a CI schedule
+  ```
+
+  This stores the same signed manifest again, after checking its signature. Once a
+  manifest has expired everywhere, only its publisher can publish it again. Existing
+  clones keep their last verified copy and can still fetch from peers and mirrors.
+- **Not there yet:** helping seed someone else's repository's *packs* (running `seed` in
+  a clone publishes under *your* key, as a different repository). The background daemon
+  in the [roadmap](../explanation/roadmap.md) covers that.

@@ -9,6 +9,7 @@ mod compact;
 mod export;
 mod key;
 mod reconcile;
+mod republish;
 mod seed;
 mod sign;
 mod status;
@@ -34,6 +35,7 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Status => status::run(cwd, out),
         Command::Export(args) => export::run(&args, cwd, out),
         Command::Compact(args) => compact::run(&args, cwd, out),
+        Command::Republish(args) => republish::run(&args, out),
         Command::Reconcile(args) => reconcile::run(&args, cwd, out),
     }
 }

@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use grt_core::{ObjectId, RefName};
+use grt_core::{ObjectId, RefName, RemoteUrl};
 
 /// Keys, trust and signed manifests for git-remote-torrent.
 #[derive(Debug, Parser)]
@@ -33,6 +33,10 @@ pub(crate) enum Command {
     /// Replace the pack chain with one pack and sign the next manifest with
     /// the same refs. `sign` does this by itself when the manifest is full.
     Compact(CompactArgs),
+    /// Store the newest verified manifest of each address on the DHT again,
+    /// so it does not expire. Needs no key: anyone can keep a repository
+    /// findable.
+    Republish(RepublishArgs),
     /// Push refs that went only to the swarm while the upstream was down to
     /// the upstream, now that it is back.
     Reconcile(ReconcileArgs),
@@ -138,6 +142,17 @@ pub(crate) struct CompactArgs {
     /// again.
     #[arg(long)]
     pub(crate) prune: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RepublishArgs {
+    /// `torrent://<key>[/<name>]` addresses to keep alive.
+    #[arg(required = true, value_name = "ADDRESS")]
+    pub(crate) addresses: Vec<RemoteUrl>,
+    /// Join a private DHT through this node instead of the public one.
+    /// Repeat for several nodes.
+    #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
+    pub(crate) dht_bootstrap: Vec<String>,
 }
 
 #[derive(Debug, Args)]

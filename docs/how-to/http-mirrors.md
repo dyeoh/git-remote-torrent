@@ -4,8 +4,10 @@ Seeders come and go. A static HTTP mirror keeps your repository cloneable even w
 peer is online and the upstream is gone. A cloner only needs the DHT to find your signed
 manifest, and the manifest tells them where the mirror is.
 
-Mirrors need no trust. Every pack is checked against the infohash in your signed manifest
-before git sees it, so a mirror that serves other bytes is ignored.
+Mirrors need no trust. Every pack is checked against both infohashes in your signed
+manifest (SHA-1 and SHA-256) before git sees it, so a mirror that serves other bytes is
+ignored. Clients older than 0.4 can't verify packs signed by 0.4 or later from mirrors
+(they still fetch them from peers), so mirror users should upgrade.
 
 ## 1. Export the pack chain
 

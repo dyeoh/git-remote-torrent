@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use grt_core::InfoHash;
+use grt_core::{InfoHash, InfoHashV2};
 use grt_git::Repo;
-use grt_swarm::{Error, fetch_from_mirror, info_hash_of};
+use grt_swarm::{Error, fetch_from_mirror, hashes_of};
 use tempfile::TempDir;
 
 /// Serves files under `root` at `http://127.0.0.1:<port>/<path>` until the
@@ -53,7 +53,7 @@ fn serve(root: PathBuf) -> String {
 }
 
 /// A one-commit repository's full pack, stored as `<dir>/pack`.
-async fn pack(dir: &Path) -> (PathBuf, InfoHash) {
+async fn pack(dir: &Path) -> (PathBuf, InfoHash, InfoHashV2) {
     let source = dir.join("source");
     fs::create_dir(&source).expect("create source");
     let git = |args: &[&str]| {
@@ -78,14 +78,14 @@ async fn pack(dir: &Path) -> (PathBuf, InfoHash) {
     let tip = repo.refs(&["refs/heads"]).expect("refs")[0].1;
     let file = dir.join("pack");
     repo.write_pack(&[tip], &[], &file).expect("write pack");
-    let info_hash = info_hash_of(&file).await.expect("hash");
-    (file, info_hash)
+    let hashes = hashes_of(&file).await.expect("hash");
+    (file, hashes.v1, hashes.v2)
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn mirror_packs_are_verified_against_the_infohash() {
     let dir = TempDir::new().expect("create temp dir");
-    let (file, info_hash) = pack(dir.path()).await;
+    let (file, info_hash, sha256) = pack(dir.path()).await;
     let served = dir.path().join("www").join("packs");
     fs::create_dir_all(&served).expect("create web root");
     let base = serve(dir.path().join("www"));
@@ -95,6 +95,7 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     let fetched = fetch_from_mirror(
         &format!("{base}/packs/"),
         info_hash,
+        Some(sha256),
         &dir.path().join("in"),
         timeout,
     )
@@ -106,13 +107,27 @@ async fn mirror_packs_are_verified_against_the_infohash() {
         "the mirror's pack arrives intact"
     );
 
+    // The SHA-256 (v2) infohash is checked too, not just SHA-1.
+    let result = fetch_from_mirror(
+        &format!("{base}/packs"),
+        info_hash,
+        Some(InfoHashV2::from([9; 32])),
+        &dir.path().join("wrong-v2"),
+        timeout,
+    )
+    .await;
+    assert!(
+        matches!(result, Err(Error::Mirror(ref message)) if message.contains("SHA-256")),
+        "a pack whose v2 infohash differs is rejected: {result:?}"
+    );
+
     // A mirror serving other bytes under the right name is caught.
     let mut tampered = fs::read(&file).expect("read");
     let last = tampered.len() - 1;
     tampered[last] ^= 1;
     fs::write(served.join(format!("{info_hash}.pack")), tampered).expect("tamper");
     let out = dir.path().join("tampered");
-    let result = fetch_from_mirror(&format!("{base}/packs"), info_hash, &out, timeout).await;
+    let result = fetch_from_mirror(&format!("{base}/packs"), info_hash, None, &out, timeout).await;
     assert!(
         matches!(result, Err(Error::Mirror(ref message)) if message.contains("served a pack")),
         "tampered pack must be rejected: {result:?}"
@@ -123,7 +138,7 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     );
 
     let missing = InfoHash::from([7; 20]);
-    let result = fetch_from_mirror(&format!("{base}/packs"), missing, &out, timeout).await;
+    let result = fetch_from_mirror(&format!("{base}/packs"), missing, None, &out, timeout).await;
     assert!(
         matches!(result, Err(Error::Mirror(_))),
         "a 404 is a mirror error: {result:?}"

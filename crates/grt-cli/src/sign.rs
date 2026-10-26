@@ -4,7 +4,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
-use grt_core::{InfoHash, Manifest, ObjectId, PublisherKey, RemoteUrl, Seq, SignedManifest};
+use grt_core::{
+    InfoHash, InfoHashV2, Manifest, ObjectId, PublisherKey, RemoteUrl, Seq, SignedManifest,
+};
 use grt_git::Repo;
 
 use crate::cli::SignArgs;
@@ -62,22 +64,35 @@ pub(crate) async fn sign_next(
     let sign = |manifest: &Manifest| key.sign(manifest, seq, args.name.as_bytes());
 
     let mut signed = None;
-    if chain == Chain::Extend {
-        let mut packs = previous
-            .as_ref()
-            .map(|previous| previous.manifest().packs().to_vec())
-            .unwrap_or_default();
+    // A chain signed before 0.4 has no SHA-256 hashes, so it is rebuilt once.
+    let previous_chain = match &previous {
+        Some(previous) => hybrid_chain(previous.manifest()),
+        None => Some(Vec::new()),
+    };
+    if chain == Chain::Extend && previous_chain.is_none() {
+        writeln!(
+            out,
+            "Rebuilding the pack chain as one SHA-256-verified (hybrid) pack."
+        )?;
+    }
+    if chain == Chain::Extend
+        && let Some(mut packs) = previous_chain
+    {
         let exclude: Vec<ObjectId> = previous
             .as_ref()
             .map(|previous| previous.manifest().refs().values().copied().collect())
             .unwrap_or_default();
         if let Some((pack, objects)) = write_next_pack(repo, &refs, &exclude).await? {
-            writeln!(out, "Added pack {pack} ({objects} objects) to the chain.")?;
+            writeln!(
+                out,
+                "Added pack {} ({objects} objects) to the chain.",
+                pack.0
+            )?;
             packs.push(pack);
         }
         match sign(&with_packs(&refs, &packs)) {
             Ok(extended) => signed = Some(extended),
-            // Each pack id costs 20 bytes; one pack frees the room.
+            // Each pack costs 52 bytes of ids; one pack frees the room.
             Err(grt_core::Error::TooLarge { .. }) if packs.len() > 1 => writeln!(
                 out,
                 "The manifest is full with {} packs; compacting the chain.",
@@ -93,7 +108,8 @@ pub(crate) async fn sign_next(
             Some((pack, objects)) => {
                 writeln!(
                     out,
-                    "Compacted the chain into pack {pack} ({objects} objects)."
+                    "Compacted the chain into pack {} ({objects} objects).",
+                    pack.0
                 )?;
                 vec![pack]
             }
@@ -189,12 +205,37 @@ fn refs_manifest(
 }
 
 /// `refs` with `packs` as its chain.
-fn with_packs(refs: &Manifest, packs: &[InfoHash]) -> Manifest {
+fn with_packs(refs: &Manifest, packs: &[Pack]) -> Manifest {
     let mut manifest = refs.clone();
-    for &pack in packs {
+    for &(pack, _) in packs {
         manifest.push_pack(pack);
     }
+    if !packs.is_empty() {
+        manifest
+            .set_packs_v2(Some(packs.iter().map(|&(_, v2)| v2).collect()))
+            .expect("one v2 infohash per pack");
+    }
     manifest
+}
+
+/// A pack's v1 and SHA-256 (v2) infohashes, as a hybrid torrent (ADR-0008).
+type Pack = (InfoHash, InfoHashV2);
+
+/// The manifest's chain with both infohashes, or `None` if it predates
+/// hybrid packs and lists only v1 infohashes.
+fn hybrid_chain(manifest: &Manifest) -> Option<Vec<Pack>> {
+    match manifest.packs_v2() {
+        Some(v2) => Some(
+            manifest
+                .packs()
+                .iter()
+                .copied()
+                .zip(v2.iter().copied())
+                .collect(),
+        ),
+        None if manifest.packs().is_empty() => Some(Vec::new()),
+        None => None,
+    }
 }
 
 fn too_large_hint(error: grt_core::Error) -> anyhow::Error {
@@ -214,7 +255,7 @@ async fn write_next_pack(
     repo: &Repo,
     manifest: &Manifest,
     exclude: &[ObjectId],
-) -> anyhow::Result<Option<(InfoHash, u32)>> {
+) -> anyhow::Result<Option<(Pack, u32)>> {
     let tips: Vec<ObjectId> = manifest
         .refs()
         .values()
@@ -230,14 +271,14 @@ async fn write_next_pack(
         fs::remove_dir_all(&staging)?;
         return Ok(None);
     }
-    let pack = grt_swarm::info_hash_of(&file).await?;
-    let stored = packs_dir(repo).join(pack.to_string());
+    let hashes = grt_swarm::hashes_of(&file).await?;
+    let stored = packs_dir(repo).join(hashes.v1.to_string());
     if stored.exists() {
         fs::remove_dir_all(&staging)?;
     } else {
         fs::rename(&staging, &stored)?;
     }
-    Ok(Some((pack, objects)))
+    Ok(Some(((hashes.v1, hashes.v2), objects)))
 }
 
 /// Where the pack with infohash `pack` is stored.
@@ -293,4 +334,33 @@ fn save(repo: &Repo, signed: &SignedManifest) -> anyhow::Result<()> {
 
 fn path(repo: &Repo) -> PathBuf {
     repo.git_dir().join("torrent").join("manifest")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chains_without_sha256_are_rebuilt() {
+        let mut manifest = Manifest::new();
+        assert_eq!(hybrid_chain(&manifest), Some(Vec::new()), "no packs yet");
+        manifest.push_pack(InfoHash::from([1; 20]));
+        assert_eq!(
+            hybrid_chain(&manifest),
+            None,
+            "a v1-only chain (before 0.4) cannot be extended"
+        );
+        let v2 = InfoHashV2::from([2; 32]);
+        manifest.set_packs_v2(Some(vec![v2])).unwrap();
+        assert_eq!(
+            hybrid_chain(&manifest),
+            Some(vec![(InfoHash::from([1; 20]), v2)]),
+            "a hybrid chain pairs each pack's hashes"
+        );
+        assert_eq!(
+            with_packs(&Manifest::new(), &[(InfoHash::from([1; 20]), v2)]).packs_v2(),
+            Some([v2].as_slice()),
+            "signing writes packs2"
+        );
+    }
 }

@@ -12,6 +12,9 @@ pub enum Error {
     /// The torrent engine failed.
     #[error("torrent: {0}")]
     Torrent(String),
+    /// A downloaded pack does not hash to the infohash the manifest names.
+    #[error("pack verification failed: {0}")]
+    Mismatch(String),
     /// An HTTP mirror failed or served the wrong bytes.
     #[error("mirror: {0}")]
     Mirror(String),

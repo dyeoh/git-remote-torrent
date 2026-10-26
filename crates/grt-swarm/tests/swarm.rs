@@ -57,7 +57,7 @@ async fn pack_travels_by_infohash_alone() {
 
     let seed_dir = dir.path().join("seed");
     fs::create_dir(&seed_dir).expect("create seed dir");
-    let pack = seed_dir.join("chain-0.pack");
+    let pack = seed_dir.join("pack");
     Repo::discover(&source)
         .expect("discover")
         .write_pack(&[tip], &[], &pack)

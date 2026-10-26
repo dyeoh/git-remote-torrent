@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
-use grt_core::{Manifest, ObjectId, PublisherKey, Seq, SignedManifest};
+use grt_core::{InfoHashV2, Manifest, ObjectId, PublisherKey, Seq, SignedManifest};
 use grt_git::Repo;
 use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig};
 use mainline::Testnet;
@@ -117,6 +117,8 @@ struct Publisher {
     name: String,
     upstream: Option<String>,
     mirrors: Vec<String>,
+    /// Sign a wrong SHA-256 (v2) infohash for every pack.
+    wrong_sha256: bool,
     bootstrap: Vec<String>,
     swarm: PackSwarm,
     peer: SocketAddr,
@@ -145,6 +147,7 @@ impl Publisher {
             name: name.to_owned(),
             upstream,
             mirrors: Vec::new(),
+            wrong_sha256: false,
             bootstrap: testnet.bootstrap.clone(),
             swarm,
             peer,
@@ -198,6 +201,18 @@ impl Publisher {
         for &pack in &packs {
             manifest.push_pack(pack);
         }
+        // Record the SHA-256 (v2) infohashes, as `git torrent sign` does.
+        let mut sha256 = Vec::new();
+        for index in 0..packs.len() {
+            let file = self.packs.join(index.to_string()).join("pack");
+            let real = grt_swarm::hashes_of(&file).await.expect("hash").v2;
+            sha256.push(if self.wrong_sha256 {
+                InfoHashV2::from([7; 32])
+            } else {
+                real
+            });
+        }
+        manifest.set_packs_v2(Some(sha256)).expect("one per pack");
 
         let signed = self
             .key
@@ -425,4 +440,25 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
         "the pack came from the mirror the manifest lists:\n{stderr}"
     );
     assert_eq!(clone_head(&sandbox), first, "cloned from the mirror");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pack_failing_its_sha256_is_refused() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    let mut publisher = Publisher::start(&sandbox, "", None).await;
+    publisher.wrong_sha256 = true;
+    publisher.publish(&sandbox).await;
+
+    let address = publisher.address();
+    let output = sandbox.swarm_git(
+        &publisher,
+        sandbox.dir.path(),
+        &["clone", &address, "clone"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("SHA-256 (v2) infohash"),
+        "the right SHA-1 is not enough; the signed SHA-256 must match too:\n{stderr}"
+    );
 }

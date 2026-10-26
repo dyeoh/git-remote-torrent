@@ -11,8 +11,8 @@ signed with the publisher's Ed25519 key. It is implemented in `grt-core`
 |-----|------|----------|---------|
 | `v` | integer | yes | Format version. Currently `1`. |
 | `refs` | dict: ref name → bytes | yes | Each ref's object id as raw bytes: 20 for SHA-1, 32 for SHA-256. All ids in one manifest use the same format. |
-| `packs` | bytes | yes | Concatenated 20-byte BitTorrent v1 infohashes, oldest pack first. Empty if there are no packs. |
-| `packs2` | bytes | no | Concatenated 32-byte BitTorrent v2 infohashes of the **same** packs, in the same order. Reserved for v2-capable clients; current writers leave it out. See [ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md). |
+| `packs` | bytes | yes | Concatenated 20-byte v1 infohashes of each pack's hybrid torrent, oldest pack first. Empty if there are no packs. |
+| `packs2` | bytes | no | Concatenated 32-byte v2 (SHA-256) infohashes of the **same** hybrid torrents, in the same order. Written since 0.4; readers verify every pack against it when present. See [ADR-0008](../adr/0008-hybrid-torrents-and-sha256.md). |
 | `head` | bytes | no | The ref `HEAD` points to. It must be a key of `refs`. |
 | `up` | bytes (UTF-8) | no | The canonical upstream URL. |
 | `ws` | list of bytes (UTF-8) | no | Base URLs of HTTP mirrors serving each pack as `<base>/<infohash>.pack`. See [ADR-0007](../adr/0007-http-mirrors-instead-of-bep19.md). |
@@ -71,3 +71,15 @@ Verification happens **before** the manifest is parsed.
 The last verified manifest is cached as a bencoded dictionary:
 `{k: pubkey, salt, seq, sig, v: <manifest bytes>}`. It is re-verified every time it is
 loaded.
+
+## Pack torrents
+
+Each pack is described by a BEP 52 hybrid torrent, so anyone can recompute both of its
+infohashes from the bytes:
+
+- one file named `pack`, with `length` equal to the pack's size;
+- a piece length of 256 KiB, doubled until there are at most 1024 pieces;
+- an info dictionary with exactly these keys: `file tree`, `length`, `meta version` (2),
+  `name`, `piece length`, `pieces`;
+- **v1 infohash:** SHA-1 of the bencoded info dictionary;
+- **v2 infohash:** SHA-256 of the same bytes.

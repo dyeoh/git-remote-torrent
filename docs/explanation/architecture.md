@@ -31,10 +31,20 @@ objects not yet present, so packs can't be applied out of order.
 
 ## Hybrid fetch
 
-1. Query the upstream (`ls-remote`) and the DHT manifest in parallel.
-2. If the upstream agrees with the manifest, download packs from the swarm and web seeds,
-   and fall back to the upstream on timeout.
-3. If the upstream is gone, serve from the last verified manifest and the swarm, and tell
-   the user.
-4. If they disagree, the higher `seq` or the upstream wins. Both sets of refs are exposed
-   under `refs/torrent/*`.
+`grt_helper::Router` decides, per command, where refs and objects come from:
+
+1. **`list`** asks the upstream (`git ls-remote`). While it answers, its refs are
+   canonical, even if a manifest disagrees.
+2. **`fetch`** resolves the manifest from the DHT. If the manifest's ref tips cover every
+   object git asked for, the pack chain is downloaded from the swarm. If the swarm fails,
+   or the upstream is ahead of the manifest, the upstream serves the fetch instead.
+3. If the upstream can't list its refs (deleted, private, offline), the manifest serves
+   both `list` and `fetch`, and the user is told on stderr.
+
+The last manifest fetched is kept in `.git/torrent/fetched/`. It is used when the DHT is
+unreachable, and an older manifest from the DHT never replaces it, which blocks rollback.
+Packs already applied are recorded in `.git/torrent/applied/`, so a fetch downloads only
+the new end of the chain.
+
+Pure P2P remotes (`torrent://`) follow step 3 always. Exposing an upstream and a manifest
+that disagree side by side (`refs/torrent/*`) is planned.

@@ -1379,9 +1379,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "grt-core",
+ "grt-git",
+ "grt-swarm",
  "grt-upstream",
+ "mainline",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

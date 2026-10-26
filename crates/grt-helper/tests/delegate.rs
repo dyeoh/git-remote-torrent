@@ -164,22 +164,3 @@ fn unreachable_upstream_fails_cleanly() {
         "cloning a missing upstream must fail"
     );
 }
-
-#[test]
-fn swarm_urls_are_not_supported_yet() {
-    let sandbox = Sandbox::new();
-    let key = "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29";
-    let output = sandbox.git(
-        sandbox.dir.path(),
-        &["clone", &format!("torrent://{key}"), "clone"],
-    );
-    assert!(
-        !output.status.success(),
-        "pure P2P clone is not implemented yet"
-    );
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("not supported yet"),
-        "the user is told why: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}

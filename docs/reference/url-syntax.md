@@ -24,9 +24,35 @@ The upstream URL is passed to `git` as an argument, so the helper rejects:
 - `torrent::torrent::…`, which nests the helper inside itself
 - `torrent://` URLs whose key isn't 64 hex digits, or whose name is longer than 64 bytes
 
+## Backing a hybrid remote with the swarm
+
+A `torrent::<git-url>` remote uses the swarm only if it knows the publisher's address.
+Set it per remote, for example while cloning:
+
+```sh
+git clone -c remote.origin.torrentAddress=torrent://<key>[/<name>] \
+  torrent::https://github.com/org/project.git
+```
+
+Without `remote.<name>.torrentAddress`, a hybrid remote passes everything through to
+the upstream.
+
+## Configuration
+
+The helper reads these keys from git config, so they can be set per repository, globally,
+or for one command with `git -c`.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `remote.<name>.torrentAddress` | unset | The `torrent://` address that backs a hybrid remote |
+| `torrent.dhtBootstrap` | the public DHT | `host:port` of a DHT node to join instead; repeat for several |
+| `torrent.peer` | none | `host:port` of a peer to ask for packs; repeat for several |
+| `torrent.peerDht` | `true` | Find pack peers on the DHT. Turn off for LAN-only or test setups |
+| `torrent.fetchTimeout` | `120` | Seconds allowed for resolving the manifest, and for each pack |
+
 ## Current support
 
-| Mode | Status |
-|------|--------|
-| Hybrid | `clone`, `fetch` and `push` work by passing everything through to the upstream. The swarm comes in 0.2. |
-| Pure P2P | Not supported yet (0.2) |
+| Mode | `clone` / `fetch` | `push` |
+|------|-------------------|--------|
+| Hybrid | Refs from the upstream, objects from the swarm when the manifest covers them; the swarm serves both when the upstream is gone | To the upstream |
+| Pure P2P | From the swarm | Not supported yet (0.3); push to the upstream and run `git torrent seed` |

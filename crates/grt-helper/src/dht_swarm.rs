@@ -313,6 +313,21 @@ impl DhtSwarm {
         Ok(["--update".to_owned(), format!("{dst}={new}")])
     }
 
+    /// True if `manifest` is the last one signed in this repository, rather
+    /// than one published from another machine.
+    fn signed_here(&self, repo: &Repo, manifest: &SignedManifest) -> bool {
+        let path = repo.git_dir().join("torrent").join("manifest");
+        fs::read(path)
+            .ok()
+            .and_then(|bytes| SignedManifest::decode(&bytes).ok())
+            .is_some_and(|own| {
+                own.public_key() == self.key
+                    && own.salt() == self.salt
+                    && own.seq() == manifest.seq()
+                    && own.value() == manifest.value()
+            })
+    }
+
     /// True if `git torrent seed` is running for this repository.
     fn seeder_running(repo: &Repo) -> bool {
         let Ok(pid) = fs::read_to_string(repo.git_dir().join("torrent").join("seed.pid")) else {
@@ -425,11 +440,28 @@ impl Swarm for DhtSwarm {
         specs: &[PushSpec],
         fast_forward_only: bool,
     ) -> Result<Vec<PushResult>, Error> {
-        let published = self
-            .manifest()?
+        let newest = self.manifest()?;
+        let repo = self.repo()?;
+        // One machine publishes an address: its pack chain lives only there,
+        // so a manifest signed elsewhere cannot be extended here.
+        if let Some(newest) = &newest
+            && !self.signed_here(repo, newest)
+        {
+            return Ok(specs
+                .iter()
+                .map(|spec| PushResult {
+                    dst: spec.dst.clone(),
+                    status: PushStatus::Rejected(format!(
+                        "fetch first: manifest #{} of this address was signed on another \
+                         machine, and only one machine can publish an address",
+                        newest.seq().get()
+                    )),
+                })
+                .collect());
+        }
+        let published = newest
             .map(|current| current.manifest().refs().clone())
             .unwrap_or_default();
-        let repo = self.repo()?;
         let mut command = Command::new("git");
         command.args(["torrent", "sign"]);
         if !self.salt.is_empty() {

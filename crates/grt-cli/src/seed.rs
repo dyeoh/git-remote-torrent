@@ -83,17 +83,20 @@ async fn seed(
                     continue;
                 };
                 // Seed first, so the manifest never points at packs no one has.
-                let published = match seed_chain(repo, &swarm, &next, &mut seeded).await {
-                    Ok(()) => dht.publish(&next, Some(current.seq())).await.map_err(Into::into),
-                    Err(error) => Err(error),
-                };
-                match published {
+                seed_chain(repo, &swarm, &next, &mut seeded).await?;
+                match dht.publish(&next, Some(current.seq())).await {
                     Ok(()) => writeln!(
                         out,
                         "Published manifest #{} ({} pack(s)).",
                         next.seq().get(),
                         next.manifest().packs().len()
                     )?,
+                    // Republishing the loser would fight the other machine.
+                    Err(grt_swarm::Error::Conflict(reason)) => bail!(
+                        "manifest #{} was not published: another machine published to this \
+                         address meanwhile ({reason}). Only one machine can publish an address.",
+                        next.seq().get()
+                    ),
                     Err(error) => writeln!(
                         out,
                         "warning: could not publish manifest #{}: {error}",

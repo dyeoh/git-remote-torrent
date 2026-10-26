@@ -136,3 +136,19 @@ A running `git torrent seed` seeds and publishes the compacted manifest like any
 Clones that applied the old chain download the full pack once on their next fetch.
 Without `--prune`, the old packs stay in `.git/torrent/packs`, so a seeder started before
 the compaction can keep serving peers that are part-way through the old chain.
+
+## One machine per address
+
+Publish each address (key and name) from one machine. Its pack chain lives only there,
+so another machine can't extend it, even with a copy of the key.
+
+- A push from another repository whose newest manifest wasn't signed there is rejected
+  with `fetch first: manifest #N of this address was signed on another machine`.
+  Nothing is signed.
+- If another machine publishes while `git torrent seed` runs, the seeder's next publish
+  loses the compare-and-swap. The seeder then stops with an error instead of fighting
+  over the address.
+
+To move publishing to another machine, copy its `.git/torrent/` directory along with the
+key. To publish the same code from several machines, give each its own name
+(`--name`) or key.

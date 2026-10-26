@@ -149,6 +149,16 @@ so another machine can't extend it, even with a copy of the key.
   loses the compare-and-swap. The seeder then stops with an error instead of fighting
   over the address.
 
-To move publishing to another machine, copy its `.git/torrent/` directory along with the
-key. To publish the same code from several machines, give each its own name
+To move publishing to another machine, such as a new laptop or a CI runner, give it the
+key and run `git torrent adopt` (with `--name` if you used one) in a **full** clone:
+
+1. It fetches the newest manifest for your key from the DHT.
+2. It downloads the pack chain from the manifest's mirrors (`--mirror` adds more), or
+   from peers (`--peer`).
+3. It checks both infohashes of every pack, and proves that the chain rebuilds every ref
+   in a scratch repository.
+4. Only then does it save the manifest, so `sign` and `git push` continue the chain.
+
+Afterwards, publish only from the new machine. `sign` refuses shallow clones, because
+their packs would be missing history. To publish the same code from several machines, give each its own name
 (`--name`) or key.

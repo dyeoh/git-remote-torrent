@@ -4,6 +4,7 @@
 //! This is an application crate, so it reports errors with `anyhow`. All
 //! output goes through the `out` writer handed to [`run`] so it can be tested.
 
+mod adopt;
 mod cli;
 mod compact;
 mod export;
@@ -35,6 +36,7 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Status => status::run(cwd, out),
         Command::Export(args) => export::run(&args, cwd, out),
         Command::Compact(args) => compact::run(&args, cwd, out),
+        Command::Adopt(args) => adopt::run(&args, cwd, out),
         Command::Republish(args) => republish::run(&args, out),
         Command::Reconcile(args) => reconcile::run(&args, cwd, out),
     }

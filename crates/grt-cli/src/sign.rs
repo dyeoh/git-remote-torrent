@@ -51,6 +51,13 @@ pub(crate) async fn sign_next(
     chain: Chain,
     out: &mut dyn Write,
 ) -> anyhow::Result<SignedManifest> {
+    // Packs written from a cut-off history would lack the parents clients need.
+    if repo.is_shallow()? {
+        bail!(
+            "this is a shallow clone, so its packs would be missing history; \
+             run `git fetch --unshallow` first (in GitHub Actions: `fetch-depth: 0`)"
+        );
+    }
     // The chain continues only for the same key and name; anything else starts over.
     let previous = load(repo)?.filter(|previous| {
         previous.public_key() == key.public_key() && previous.salt() == args.name.as_bytes()
@@ -324,7 +331,7 @@ pub(crate) fn load(repo: &Repo) -> anyhow::Result<Option<SignedManifest>> {
     }
 }
 
-fn save(repo: &Repo, signed: &SignedManifest) -> anyhow::Result<()> {
+pub(crate) fn save(repo: &Repo, signed: &SignedManifest) -> anyhow::Result<()> {
     let path = path(repo);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;

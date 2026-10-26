@@ -84,6 +84,42 @@ impl Repo {
         ))
     }
 
+    /// Resolves a revision (a ref name or object id) to an object id.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the revision does not exist or git fails.
+    pub fn rev_parse(&self, rev: &str) -> Result<ObjectId, Error> {
+        let mut command = self.git();
+        command.args(["rev-parse", "--verify", "--quiet", "--end-of-options", rev]);
+        let stdout = run(command, "rev-parse")?;
+        Ok(stdout.trim_end().parse()?)
+    }
+
+    /// Returns true if `ancestor` is reachable from `descendant`, which makes
+    /// moving a ref from one to the other a fast-forward.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git fails, for example because an object is
+    /// missing.
+    pub fn is_ancestor(&self, ancestor: &ObjectId, descendant: &ObjectId) -> Result<bool, Error> {
+        let mut command = self.git();
+        command.args([
+            "merge-base",
+            "--is-ancestor",
+            &ancestor.to_string(),
+            &descendant.to_string(),
+        ]);
+        let output = command.stdin(Stdio::null()).output()?;
+        // Exit status 1 means "not an ancestor"; anything else is an error.
+        if output.status.code() == Some(1) {
+            return Ok(false);
+        }
+        check(&output, "merge-base")?;
+        Ok(true)
+    }
+
     /// Reads a config value, as `git config --get` sees it from this repository.
     ///
     /// # Errors

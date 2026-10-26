@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -38,28 +38,12 @@ pub(crate) async fn sign_next(
     args: &SignArgs,
     out: &mut dyn Write,
 ) -> anyhow::Result<SignedManifest> {
-    let mut manifest = Manifest::new();
-    for (name, id) in repo.refs(PUBLISHED_REFS)? {
-        manifest.insert_ref(name, id)?;
-    }
-    if let Some(head) = repo.head_target()?
-        && manifest.refs().contains_key(&head)
-    {
-        manifest.set_head(Some(head))?;
-    }
-    manifest.set_upstream(match &args.upstream {
-        Some(upstream) => Some(upstream.clone()),
-        None => origin_upstream(repo)?,
-    });
-
     // The chain continues only for the same key and name; anything else starts over.
     let previous = load(repo)?.filter(|previous| {
         previous.public_key() == key.public_key() && previous.salt() == args.name.as_bytes()
     });
-    manifest.set_mirrors(match (&previous, args.mirrors.is_empty()) {
-        (Some(previous), true) => previous.manifest().mirrors().to_vec(),
-        _ => args.mirrors.clone(),
-    })?;
+
+    let mut manifest = refs_manifest(repo, args, previous.as_ref())?;
     let mut packs = previous
         .as_ref()
         .map(|previous| previous.manifest().packs().to_vec())
@@ -111,6 +95,68 @@ pub(crate) async fn sign_next(
         writeln!(out, "Mirror: {mirror}")?;
     }
     Ok(signed)
+}
+
+/// The next manifest's refs, `HEAD`, upstream and mirrors, without packs.
+///
+/// A plain sign publishes the local branches and tags. A sign with
+/// `--update`/`--delete` (a push) changes only those refs of `previous`.
+fn refs_manifest(
+    repo: &Repo,
+    args: &SignArgs,
+    previous: Option<&SignedManifest>,
+) -> anyhow::Result<Manifest> {
+    let mut manifest = Manifest::new();
+    let mut head = None;
+    if args.is_update() {
+        // A push: the published refs, changed only where the push changed them.
+        let mut refs = BTreeMap::new();
+        if let Some(previous) = previous {
+            refs.clone_from(previous.manifest().refs());
+            head = previous.manifest().head().cloned();
+        }
+        for name in &args.deletes {
+            refs.remove(name);
+        }
+        for (name, id) in &args.updates {
+            refs.insert(name.clone(), *id);
+        }
+        for (name, id) in refs {
+            manifest.insert_ref(name, id)?;
+        }
+    } else {
+        for (name, id) in repo.refs(PUBLISHED_REFS)? {
+            manifest.insert_ref(name, id)?;
+        }
+    }
+    if head
+        .as_ref()
+        .is_none_or(|head| !manifest.refs().contains_key(head))
+    {
+        head = repo.head_target()?;
+    }
+    if let Some(head) = head
+        && manifest.refs().contains_key(&head)
+    {
+        manifest.set_head(Some(head))?;
+    }
+    let upstream = match &args.upstream {
+        Some(upstream) => Some(upstream.clone()),
+        None => origin_upstream(repo)?.or_else(|| {
+            // A push to a pure swarm remote keeps the recorded upstream.
+            previous
+                .as_ref()
+                .filter(|_| args.is_update())
+                .and_then(|previous| previous.manifest().upstream().map(str::to_owned))
+        }),
+    };
+    manifest.set_upstream(upstream);
+
+    manifest.set_mirrors(match (previous, args.mirrors.is_empty()) {
+        (Some(previous), true) => previous.manifest().mirrors().to_vec(),
+        _ => args.mirrors.clone(),
+    })?;
+    Ok(manifest)
 }
 
 /// Writes a pack of the objects reachable from the manifest's refs but not

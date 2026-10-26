@@ -7,7 +7,7 @@
 | `grt-swarm` | Mainline DHT (BEP 44/46), BitTorrent v1 packs, BEP 19 web seeds, mDNS | yes |
 | `grt-upstream` | Canonical HTTPS/SSH remote; forge key discovery | yes |
 | `grt-helper` | `git-remote-torrent`: the remote-helper protocol | yes |
-| `grt-cli` | `git-torrent`: init, keygen, trust, seed, status, compact | yes |
+| `grt-cli` | `git-torrent`: key, trust, sign, seed, status, export, compact, reconcile | yes |
 | `grt-daemon` | `git-torrentd`: background seeder, push webhooks, mDNS announce | yes |
 
 ## Data model
@@ -22,7 +22,8 @@ key and an optional salt:
 See the [manifest format reference](../reference/manifest-format.md).
 
 `packs` is an ordered chain of self-contained packfiles. Each one is distributed as a
-BitTorrent v1 torrent ([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). `git torrent compact` folds the chain back into one base pack.
+BitTorrent v1 torrent ([ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md)). `git torrent compact` folds the chain back into one base pack, and `sign` does so by
+itself when the next pack id would push the manifest past 1000 bytes.
 
 Each pack holds the objects reachable from the new tips but not from the previous
 manifest's tips (`Repo::write_pack`). Receivers index the chain oldest first with

@@ -30,6 +30,9 @@ pub(crate) enum Command {
     /// Copy the signed manifest's packs into a directory as
     /// `<infohash>.pack`, ready to upload to an HTTP mirror.
     Export(ExportArgs),
+    /// Replace the pack chain with one pack and sign the next manifest with
+    /// the same refs. `sign` does this by itself when the manifest is full.
+    Compact(CompactArgs),
     /// Push refs that went only to the swarm while the upstream was down to
     /// the upstream, now that it is back.
     Reconcile(ReconcileArgs),
@@ -105,13 +108,16 @@ pub(crate) struct SignArgs {
     /// Publish the previous manifest's refs without this one. Repeatable.
     #[arg(long = "delete", value_name = "REF")]
     pub(crate) deletes: Vec<RefName>,
+    /// Keep the previous manifest's refs unchanged (`git torrent compact`).
+    #[arg(skip)]
+    pub(crate) keep_refs: bool,
 }
 
 impl SignArgs {
-    /// True if this signs changes to the previous manifest rather than the
-    /// local refs.
-    pub(crate) fn is_update(&self) -> bool {
-        !self.updates.is_empty() || !self.deletes.is_empty()
+    /// True if this signs the previous manifest's refs, changed only by
+    /// `updates` and `deletes`, rather than the local refs.
+    pub(crate) fn builds_on_previous(&self) -> bool {
+        self.keep_refs || !self.updates.is_empty() || !self.deletes.is_empty()
     }
 }
 
@@ -123,6 +129,15 @@ fn parse_update(value: &str) -> Result<(RefName, ObjectId), String> {
         name.parse().map_err(|error| format!("{error}"))?,
         id.parse().map_err(|error| format!("{error}"))?,
     ))
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct CompactArgs {
+    /// Delete every stored pack that is not in the new chain. Peers part-way
+    /// through fetching an old chain from this machine will have to start
+    /// again.
+    #[arg(long)]
+    pub(crate) prune: bool,
 }
 
 #[derive(Debug, Args)]

@@ -23,19 +23,30 @@ pub(crate) fn run(args: &SignArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::R
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(sign_next(&repo, &key, args, out))?;
+    runtime.block_on(sign_next(&repo, &key, args, Chain::Extend, out))?;
     Ok(())
+}
+
+/// How the next manifest's pack chain is built.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Chain {
+    /// Append one pack holding the objects the previous chain lacks.
+    Extend,
+    /// Replace the chain with one full pack.
+    Compact,
 }
 
 /// Signs the next manifest for the local refs and caches it.
 ///
 /// If the refs reach objects the previous manifest's packs do not hold, the
 /// chain grows by one pack first (ADR-0004), so every signed manifest's packs
-/// contain its refs.
+/// contain its refs. When the extended manifest no longer fits in a BEP 44
+/// item, or with [`Chain::Compact`], the chain is replaced by one full pack.
 pub(crate) async fn sign_next(
     repo: &Repo,
     key: &PublisherKey,
     args: &SignArgs,
+    chain: Chain,
     out: &mut dyn Write,
 ) -> anyhow::Result<SignedManifest> {
     // The chain continues only for the same key and name; anything else starts over.
@@ -43,36 +54,54 @@ pub(crate) async fn sign_next(
         previous.public_key() == key.public_key() && previous.salt() == args.name.as_bytes()
     });
 
-    let mut manifest = refs_manifest(repo, args, previous.as_ref())?;
-    let mut packs = previous
-        .as_ref()
-        .map(|previous| previous.manifest().packs().to_vec())
-        .unwrap_or_default();
-    let exclude: Vec<ObjectId> = previous
-        .as_ref()
-        .map(|previous| previous.manifest().refs().values().copied().collect())
-        .unwrap_or_default();
-    if let Some((pack, objects)) = write_next_pack(repo, &manifest, &exclude).await? {
-        writeln!(out, "Added pack {pack} ({objects} objects) to the chain.")?;
-        packs.push(pack);
-    }
-    for pack in packs {
-        manifest.push_pack(pack);
-    }
-
+    let refs = refs_manifest(repo, args, previous.as_ref())?;
     let seq = match &previous {
         Some(previous) => previous.seq().next()?,
         None => Seq::new(1),
     };
-    let signed = key
-        .sign(&manifest, seq, args.name.as_bytes())
-        .map_err(|error| match error {
-            grt_core::Error::TooLarge { .. } => anyhow::anyhow!(
-                "{error}: too many refs or packs for a version 1 manifest; \
-                 delete stale branches or tags and try again"
-            ),
-            other => other.into(),
-        })?;
+    let sign = |manifest: &Manifest| key.sign(manifest, seq, args.name.as_bytes());
+
+    let mut signed = None;
+    if chain == Chain::Extend {
+        let mut packs = previous
+            .as_ref()
+            .map(|previous| previous.manifest().packs().to_vec())
+            .unwrap_or_default();
+        let exclude: Vec<ObjectId> = previous
+            .as_ref()
+            .map(|previous| previous.manifest().refs().values().copied().collect())
+            .unwrap_or_default();
+        if let Some((pack, objects)) = write_next_pack(repo, &refs, &exclude).await? {
+            writeln!(out, "Added pack {pack} ({objects} objects) to the chain.")?;
+            packs.push(pack);
+        }
+        match sign(&with_packs(&refs, &packs)) {
+            Ok(extended) => signed = Some(extended),
+            // Each pack id costs 20 bytes; one pack frees the room.
+            Err(grt_core::Error::TooLarge { .. }) if packs.len() > 1 => writeln!(
+                out,
+                "The manifest is full with {} packs; compacting the chain.",
+                packs.len()
+            )?,
+            Err(error) => return Err(too_large_hint(error)),
+        }
+    }
+    let signed = if let Some(signed) = signed {
+        signed
+    } else {
+        let packs = match write_next_pack(repo, &refs, &[]).await? {
+            Some((pack, objects)) => {
+                writeln!(
+                    out,
+                    "Compacted the chain into pack {pack} ({objects} objects)."
+                )?;
+                vec![pack]
+            }
+            None => Vec::new(),
+        };
+        sign(&with_packs(&refs, &packs)).map_err(too_large_hint)?
+    };
+    let manifest = signed.manifest();
     save(repo, &signed)?;
 
     writeln!(
@@ -108,7 +137,7 @@ fn refs_manifest(
 ) -> anyhow::Result<Manifest> {
     let mut manifest = Manifest::new();
     let mut head = None;
-    if args.is_update() {
+    if args.builds_on_previous() {
         // A push: the published refs, changed only where the push changed them.
         let mut refs = BTreeMap::new();
         if let Some(previous) = previous {
@@ -146,7 +175,7 @@ fn refs_manifest(
             // A push to a pure swarm remote keeps the recorded upstream.
             previous
                 .as_ref()
-                .filter(|_| args.is_update())
+                .filter(|_| args.builds_on_previous())
                 .and_then(|previous| previous.manifest().upstream().map(str::to_owned))
         }),
     };
@@ -157,6 +186,25 @@ fn refs_manifest(
         _ => args.mirrors.clone(),
     })?;
     Ok(manifest)
+}
+
+/// `refs` with `packs` as its chain.
+fn with_packs(refs: &Manifest, packs: &[InfoHash]) -> Manifest {
+    let mut manifest = refs.clone();
+    for &pack in packs {
+        manifest.push_pack(pack);
+    }
+    manifest
+}
+
+fn too_large_hint(error: grt_core::Error) -> anyhow::Error {
+    match error {
+        grt_core::Error::TooLarge { .. } => anyhow::anyhow!(
+            "{error}: too many refs or mirrors for a version 1 manifest; \
+             delete stale branches or tags and try again"
+        ),
+        other => other.into(),
+    }
 }
 
 /// Writes a pack of the objects reachable from the manifest's refs but not

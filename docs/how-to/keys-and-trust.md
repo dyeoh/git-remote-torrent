@@ -120,3 +120,19 @@ This pushes each recorded ref's value from the manifest to the upstream, without
 Refs the upstream accepts are cleared. If someone pushed to the upstream in the meantime,
 it rejects the ref, and reconcile leaves it pending: fetch from the upstream, merge, push
 again, and rerun `git torrent reconcile`.
+
+## Compact the pack chain
+
+Each push or sign that reaches new objects adds a pack, and every pack id takes 20 of the
+manifest's 1000 bytes. When the next pack would not fit, `sign` (and so `git push`)
+replaces the whole chain with one full pack by itself. To do it earlier:
+
+```sh
+git torrent compact            # one full pack; same refs; next sequence number
+git torrent compact --prune    # also delete every stored pack not in the new chain
+```
+
+A running `git torrent seed` seeds and publishes the compacted manifest like any other.
+Clones that applied the old chain download the full pack once on their next fetch.
+Without `--prune`, the old packs stay in `.git/torrent/packs`, so a seeder started before
+the compaction can keep serving peers that are part-way through the old chain.

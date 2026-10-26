@@ -5,6 +5,7 @@
 //! output goes through the `out` writer handed to [`run`] so it can be tested.
 
 mod cli;
+mod compact;
 mod export;
 mod key;
 mod reconcile;
@@ -32,6 +33,7 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Seed(args) => seed::run(&args, cwd, out),
         Command::Status => status::run(cwd, out),
         Command::Export(args) => export::run(&args, cwd, out),
+        Command::Compact(args) => compact::run(&args, cwd, out),
         Command::Reconcile(args) => reconcile::run(&args, cwd, out),
     }
 }

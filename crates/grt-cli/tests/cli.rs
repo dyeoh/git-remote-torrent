@@ -348,3 +348,101 @@ fn mirrors_carry_over_and_export_lays_out_packs() {
         "files are named <40-hex infohash>.pack: {files:?}"
     );
 }
+
+fn pack_dirs(sandbox: &Sandbox) -> usize {
+    fs::read_dir(sandbox.repo().join(".git/torrent/packs"))
+        .expect("packs dir")
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .is_ok_and(|entry| !entry.file_name().to_string_lossy().starts_with("staging"))
+        })
+        .count()
+}
+
+#[test]
+fn compact_folds_the_chain_into_one_complete_pack() {
+    let sandbox = Sandbox::new();
+    sandbox.ok(&["key", "generate"]);
+    for file in ["A", "B", "C"] {
+        sandbox.commit(file);
+        sandbox.ok(&["sign"]);
+    }
+    assert!(sandbox.ok(&["status"]).contains("Packs:     3"));
+    let main = sandbox.git(&["rev-parse", "main"], &sandbox.repo());
+    // Compaction republishes the signed refs, not whatever is local now.
+    sandbox.git(&["branch", "private"], &sandbox.repo());
+
+    let out = sandbox.ok(&["compact"]);
+    assert!(
+        out.contains("Compacted the chain into pack") && out.contains("Signed manifest #4"),
+        "{out}"
+    );
+    assert!(
+        out.contains("3 old pack(s) stay"),
+        "old packs are kept by default: {out}"
+    );
+    let status = sandbox.ok(&["status"]);
+    assert!(status.contains("Packs:     1"), "{status}");
+    assert!(
+        status.contains("+ refs/heads/private  (not in manifest)"),
+        "the new branch is local only: {status}"
+    );
+
+    // The single pack holds every commit: a fresh repository can index it alone.
+    let pack = fs::read_dir(sandbox.repo().join(".git/torrent/packs"))
+        .expect("packs dir")
+        .map(|entry| entry.expect("entry").path().join("pack"))
+        .find(|path| {
+            let fresh = sandbox.path("fresh");
+            let _ = fs::remove_dir_all(&fresh);
+            sandbox.git(&["init", "-q", "--bare", "fresh"], sandbox.dir.path());
+            Command::new("git")
+                .args(["index-pack", "--stdin", "--strict"])
+                .current_dir(&fresh)
+                .stdin(fs::File::open(path).expect("open pack"))
+                .stdout(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success())
+                && Command::new("git")
+                    .args(["cat-file", "-e", &main])
+                    .current_dir(&fresh)
+                    .status()
+                    .is_ok_and(|status| status.success())
+        });
+    assert!(pack.is_some(), "one stored pack contains the whole history");
+
+    sandbox.commit("D");
+    sandbox.ok(&["sign"]);
+    let out = sandbox.ok(&["compact", "--prune"]);
+    assert!(out.contains("Pruned"), "{out}");
+    assert_eq!(pack_dirs(&sandbox), 1, "only the compacted pack is left");
+}
+
+#[test]
+fn sign_compacts_by_itself_when_the_manifest_is_full() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    sandbox.ok(&["key", "generate"]);
+    // Long ref names leave room for only a few pack ids.
+    for i in 0..9 {
+        sandbox.git(
+            &["branch", &format!("a-fairly-long-branch-name-{i:02}")],
+            &sandbox.repo(),
+        );
+    }
+    let mut compacted = None;
+    for round in 0..20 {
+        sandbox.commit(&format!("file-{round}"));
+        let out = sandbox.ok(&["sign"]);
+        if out.contains("compacting the chain") {
+            compacted = Some(out);
+            break;
+        }
+    }
+    let out = compacted.expect("the chain is compacted before the manifest overflows");
+    assert!(
+        out.contains("Compacted the chain into pack") && out.contains("and 1 pack(s)"),
+        "{out}"
+    );
+}

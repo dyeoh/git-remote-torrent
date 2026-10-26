@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.0] - 2026-10-26
+
+### Added
+- **BREAKING:** Push to the swarm (#30)
+- **BREAKING:** Push while the upstream is down, reconcile later (#32)
+- Compact the pack chain, by hand or when the manifest is full (#33)
+
+### Fixed
+- Refuse to publish an address from a second machine (#34)
 ## [0.2.0] - 2026-10-26
 
 ### Added

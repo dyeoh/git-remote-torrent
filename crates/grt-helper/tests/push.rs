@@ -303,3 +303,113 @@ fn hybrid_push_updates_the_upstream_and_signs_the_manifest() {
         "the signed manifest holds the pushed ref:\n{status}"
     );
 }
+
+#[test]
+fn push_while_the_upstream_is_down_and_reconcile_later() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    let address = sandbox
+        .torrent(&["key", "generate"])
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Address:")
+                .map(|rest| rest.trim().to_owned())
+        })
+        .expect("key generate prints the address");
+    let root = sandbox.dir.path();
+    sandbox.ok(root, &["init", "-q", "--bare", "upstream.git"]);
+    let upstream = sandbox.path("upstream.git");
+    let parked = sandbox.path("parked.git");
+    let source = sandbox.path("source");
+    sandbox.ok(
+        &source,
+        &[
+            "remote",
+            "add",
+            "origin",
+            &format!("torrent::file://{}", upstream.display()),
+        ],
+    );
+    sandbox.ok(
+        &source,
+        &["config", "remote.origin.torrentAddress", &address],
+    );
+    sandbox.ok(&source, &["config", "remote.origin.torrentPublish", "true"]);
+    sandbox.ok(&source, &["push", "-q", "origin", "main"]);
+    let upstream_main = || {
+        let output = sandbox.git(&upstream, &["rev-parse", "refs/heads/main"]);
+        String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    };
+
+    // The upstream goes down; the push still lands, in the swarm.
+    fs::rename(&upstream, &parked).expect("take the upstream down");
+    let offline = sandbox.commit("OFFLINE");
+    let stderr = sandbox.ok(&source, &["push", "origin", "main"]);
+    assert!(
+        stderr.contains("pushing to the swarm only") && stderr.contains("Signed manifest #2"),
+        "the push is signed into the manifest instead:\n{stderr}"
+    );
+    let output = sandbox
+        .command("git-torrent", &source)
+        .arg("reconcile")
+        .output()
+        .expect("run reconcile");
+    assert!(
+        !output.status.success(),
+        "reconcile fails while the upstream is still down"
+    );
+
+    // It comes back; reconcile replays the push.
+    fs::rename(&parked, &upstream).expect("bring the upstream back");
+    let out = sandbox.torrent(&["reconcile"]);
+    assert!(out.contains("Reconciled refs/heads/main"), "{out}");
+    assert_eq!(upstream_main(), offline, "the upstream caught up");
+    assert!(
+        sandbox
+            .torrent(&["reconcile"])
+            .contains("Nothing to reconcile"),
+        "reconciled refs are cleared"
+    );
+
+    // If the upstream moved on meanwhile, reconcile refuses to overwrite it.
+    fs::rename(&upstream, &parked).expect("take the upstream down again");
+    sandbox.commit("SWARM-ONLY");
+    sandbox.ok(&source, &["push", "-q", "origin", "main"]);
+    fs::rename(&parked, &upstream).expect("bring the upstream back");
+    sandbox.ok(
+        root,
+        &[
+            "clone",
+            "-q",
+            &format!("file://{}", upstream.display()),
+            "other",
+        ],
+    );
+    let other = sandbox.path("other");
+    fs::write(other.join("ELSEWHERE"), "x").expect("write file");
+    sandbox.ok(&other, &["add", "ELSEWHERE"]);
+    sandbox.ok(&other, &["commit", "-q", "-m", "elsewhere"]);
+    sandbox.ok(&other, &["push", "-q", "origin", "main"]);
+    let moved = upstream_main();
+
+    let output = sandbox
+        .command("git-torrent", &source)
+        .arg("reconcile")
+        .output()
+        .expect("run reconcile");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("Fetch from it, merge"),
+        "a conflict is reported, not overwritten:\n{stderr}"
+    );
+    assert_eq!(upstream_main(), moved, "the upstream's new commit survives");
+    let output = sandbox
+        .command("git-torrent", &source)
+        .arg("reconcile")
+        .output()
+        .expect("run reconcile");
+    assert!(
+        !output.status.success(),
+        "the rejected ref stays pending until it is resolved"
+    );
+}

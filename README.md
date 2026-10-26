@@ -6,7 +6,8 @@ upstream. Every push is also signed with Ed25519 and seeded to a BitTorrent swar
 takedown, outage or revoked account doesn't take the code with it.
 
 > **Status: pre-alpha (0.x).** Clones and fetches work from the swarm, including after
-> the upstream is gone. Pushes still go to the upstream only. See the
+> the upstream is gone. Pushes can publish to the swarm, even while the upstream is down,
+> and `git torrent reconcile` catches the upstream up later. See the
 > [roadmap](docs/explanation/roadmap.md). While the version is 0.y.z, any minor release
 > may contain breaking changes.
 

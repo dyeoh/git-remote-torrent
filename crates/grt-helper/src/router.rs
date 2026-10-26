@@ -148,7 +148,28 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
                 )),
             };
         };
-        let results = upstream.push(specs, options)?;
+        let results = match upstream.push(specs, options) {
+            Ok(results) => results,
+            Err(error) => {
+                let Some(swarm) = swarm else {
+                    return Err(error.into());
+                };
+                // The manifest becomes the only up-to-date copy until reconciled.
+                eprintln!(
+                    "warning: the upstream is unavailable ({error})\n\
+                     warning: pushing to the swarm only; run `git torrent reconcile` \
+                     once the upstream is back"
+                );
+                let results = swarm.push(specs, true)?;
+                let pushed: Vec<String> = results
+                    .iter()
+                    .filter(|result| result.status == PushStatus::Ok)
+                    .map(|result| result.dst.clone())
+                    .collect();
+                swarm.record_unsynced(&pushed)?;
+                return Ok(results);
+            }
+        };
         if let Some(swarm) = swarm {
             // The upstream already enforced its rules; mirror what it accepted.
             let accepted: Vec<PushSpec> = specs
@@ -255,6 +276,12 @@ mod tests {
             _options: &TransferOptions,
         ) -> Result<Vec<PushResult>, grt_upstream::Error> {
             self.log.borrow_mut().push("upstream push".to_owned());
+            if !self.up {
+                return Err(grt_upstream::Error::UnexpectedOutput {
+                    command: "push",
+                    line: "could not connect".to_owned(),
+                });
+            }
             Ok(specs
                 .iter()
                 .map(|spec| PushResult {
@@ -310,6 +337,13 @@ mod tests {
                     status: PushStatus::Ok,
                 })
                 .collect())
+        }
+
+        fn record_unsynced(&mut self, refs: &[String]) -> Result<(), Error> {
+            self.log
+                .borrow_mut()
+                .push(format!("swarm unsynced {refs:?}"));
+            Ok(())
         }
     }
 
@@ -491,6 +525,27 @@ mod tests {
             *log.borrow(),
             [r#"swarm push ["refs/heads/main"] ff=true"#],
             "the manifest is the only copy, so it enforces fast-forwards"
+        );
+    }
+
+    #[test]
+    fn push_while_the_upstream_is_down_goes_to_the_swarm_and_is_recorded() {
+        let (mut router, log) = router(false, Some(signed(A)), false);
+        let pushed = router
+            .push(
+                &["refs/heads/main:refs/heads/main".parse().unwrap()],
+                &TransferOptions::default(),
+            )
+            .unwrap();
+        assert_eq!(pushed[0].status, PushStatus::Ok);
+        assert_eq!(
+            *log.borrow(),
+            [
+                "upstream push",
+                r#"swarm push ["refs/heads/main"] ff=true"#,
+                r#"swarm unsynced ["refs/heads/main"]"#
+            ],
+            "fast-forward checks apply, and the ref is remembered for reconcile"
         );
     }
 }

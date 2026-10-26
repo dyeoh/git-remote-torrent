@@ -30,6 +30,9 @@ pub(crate) enum Command {
     /// Copy the signed manifest's packs into a directory as
     /// `<infohash>.pack`, ready to upload to an HTTP mirror.
     Export(ExportArgs),
+    /// Push refs that went only to the swarm while the upstream was down to
+    /// the upstream, now that it is back.
+    Reconcile(ReconcileArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -120,6 +123,13 @@ fn parse_update(value: &str) -> Result<(RefName, ObjectId), String> {
         name.parse().map_err(|error| format!("{error}"))?,
         id.parse().map_err(|error| format!("{error}"))?,
     ))
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct ReconcileArgs {
+    /// The `torrent::<url>` remote whose upstream missed pushes.
+    #[arg(default_value = "origin")]
+    pub(crate) remote: String,
 }
 
 #[derive(Debug, Args)]

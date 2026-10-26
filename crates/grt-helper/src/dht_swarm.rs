@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::os::fd::AsFd;
@@ -14,6 +14,10 @@ use grt_upstream::{PushResult, PushSpec, PushStatus};
 
 use crate::error::Error;
 use crate::swarm::Swarm;
+
+/// Refs pushed to the swarm while the upstream was down, as `<remote> <ref>`
+/// lines under `.git/torrent/`; read by `git torrent reconcile`.
+const UNSYNCED_FILE: &str = "unsynced";
 
 /// How long to wait for peers before trying HTTP mirrors.
 const SWARM_TIMEOUT_WITH_MIRRORS: Duration = Duration::from_secs(30);
@@ -110,6 +114,7 @@ pub struct DhtSwarm {
     /// Set once the manifest has been looked up, found or not.
     resolved: bool,
     publishes: bool,
+    remote: Option<String>,
     manifest: Option<SignedManifest>,
 }
 
@@ -137,6 +142,7 @@ impl DhtSwarm {
             settings,
             resolved: false,
             publishes: false,
+            remote: None,
             manifest: None,
         })
     }
@@ -146,6 +152,14 @@ impl DhtSwarm {
     #[must_use]
     pub fn publishing(mut self, publishes: bool) -> Self {
         self.publishes = publishes;
+        self
+    }
+
+    /// Names the git remote this swarm serves, which `record_unsynced`
+    /// needs.
+    #[must_use]
+    pub fn for_remote(mut self, remote: Option<&str>) -> Self {
+        self.remote = remote.map(str::to_owned);
         self
     }
 
@@ -382,6 +396,23 @@ impl Swarm for DhtSwarm {
             fetched.from_peers + fetched.from_mirrors,
             manifest.seq().get()
         );
+        Ok(())
+    }
+
+    fn record_unsynced(&mut self, refs: &[String]) -> Result<(), Error> {
+        let remote = self.remote.as_deref().ok_or_else(|| {
+            Error::Unavailable("an unnamed remote cannot be reconciled later".to_owned())
+        })?;
+        let path = self.repo()?.git_dir().join("torrent").join(UNSYNCED_FILE);
+        let mut lines: BTreeSet<String> = fs::read_to_string(&path)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        lines.extend(refs.iter().map(|name| format!("{remote} {name}")));
+        let mut contents = lines.into_iter().collect::<Vec<String>>().join("\n");
+        contents.push('\n');
+        fs::write(&path, contents)?;
         Ok(())
     }
 

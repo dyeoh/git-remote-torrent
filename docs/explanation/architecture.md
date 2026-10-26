@@ -60,3 +60,9 @@ with the accepted refs, which extends the pack chain and saves the new manifest 
 A running `git torrent seed` (it writes `.git/torrent/seed.pid`) polls that file. It seeds
 new packs *before* publishing, so a published manifest never names a pack that no one
 has, and it publishes with the previous `seq` as the BEP 44 `cas`.
+
+If the upstream push fails outright (unreachable, deleted, access revoked) and the remote
+publishes, the router pushes to the swarm only, with the fast-forward rule, and records
+the refs in `.git/torrent/unsynced`. `git torrent reconcile` later pushes their manifest
+values to the upstream with plain `git push --porcelain`, without force. It clears only
+the refs the upstream accepted, so a conflict stays visible until it is merged.

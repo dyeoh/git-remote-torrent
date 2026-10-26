@@ -102,3 +102,21 @@ seeder is running, the push says so, and the next `git torrent seed` publishes i
 - **Pure `torrent://` remotes:** the manifest is the only copy of the refs, so updates
   that would rewind a published ref are rejected unless you force them (`git push
   --force` or `+ref`).
+
+### When the upstream is down
+
+A push to a hybrid remote that can't reach its upstream goes to the swarm only, if the
+remote has `torrentPublish` set. Because the manifest is then the only up-to-date copy,
+the same fast-forward rule as for pure remotes applies. The pushed refs are recorded in
+`.git/torrent/unsynced`.
+
+Once the upstream is back:
+
+```sh
+git torrent reconcile            # or: git torrent reconcile <remote>
+```
+
+This pushes each recorded ref's value from the manifest to the upstream, without force.
+Refs the upstream accepts are cleared. If someone pushed to the upstream in the meantime,
+it rejects the ref, and reconcile leaves it pending: fetch from the upstream, merge, push
+again, and rerun `git torrent reconcile`.

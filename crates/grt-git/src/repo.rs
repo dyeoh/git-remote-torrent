@@ -96,6 +96,17 @@ impl Repo {
         Ok(stdout.trim_end().parse()?)
     }
 
+    /// Returns true if this is a shallow clone, whose history is cut off.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git fails.
+    pub fn is_shallow(&self) -> Result<bool, Error> {
+        let mut command = self.git();
+        command.args(["rev-parse", "--is-shallow-repository"]);
+        Ok(run(command, "rev-parse")?.trim_end() == "true")
+    }
+
     /// Returns true if `ancestor` is reachable from `descendant`, which makes
     /// moving a ref from one to the other a fast-forward.
     ///

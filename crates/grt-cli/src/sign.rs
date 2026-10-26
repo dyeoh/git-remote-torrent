@@ -56,6 +56,10 @@ pub(crate) async fn sign_next(
     let previous = load(repo)?.filter(|previous| {
         previous.public_key() == key.public_key() && previous.salt() == args.name.as_bytes()
     });
+    manifest.set_mirrors(match (&previous, args.mirrors.is_empty()) {
+        (Some(previous), true) => previous.manifest().mirrors().to_vec(),
+        _ => args.mirrors.clone(),
+    })?;
     let mut packs = previous
         .as_ref()
         .map(|previous| previous.manifest().packs().to_vec())
@@ -103,6 +107,9 @@ pub(crate) async fn sign_next(
         salt: signed.salt().to_vec(),
     };
     writeln!(out, "Address: {address}")?;
+    for mirror in manifest.mirrors() {
+        writeln!(out, "Mirror: {mirror}")?;
+    }
     Ok(signed)
 }
 

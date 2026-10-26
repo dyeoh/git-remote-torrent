@@ -302,3 +302,49 @@ fn trust_add_list_remove() {
         "forge imports require HTTPS"
     );
 }
+
+#[test]
+fn mirrors_carry_over_and_export_lays_out_packs() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    sandbox.ok(&["key", "generate"]);
+
+    let out = sandbox.ok(&["sign", "--mirror", "https://example.org/packs"]);
+    assert!(
+        out.contains("Mirror: https://example.org/packs"),
+        "the mirror is signed into the manifest: {out}"
+    );
+    sandbox.commit("CHANGES");
+    let out = sandbox.ok(&["sign"]);
+    assert!(
+        out.contains("Mirror: https://example.org/packs"),
+        "re-signing without --mirror keeps the mirror: {out}"
+    );
+    let error = sandbox.fails(&["sign", "--mirror", "file:///etc"]);
+    assert!(
+        error.contains("ws"),
+        "non-HTTP mirrors are refused: {error}"
+    );
+
+    let export = sandbox.path("export");
+    let out = sandbox.ok(&["export", export.to_str().expect("UTF-8 path")]);
+    assert!(out.contains("Exported 2 pack(s)"), "{out}");
+    let mut files: Vec<String> = fs::read_dir(&export)
+        .expect("export dir")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 2, "one file per pack in the chain");
+    assert!(
+        files.iter().all(|name| name
+            .strip_suffix(".pack")
+            .is_some_and(|hash| hash.len() == 40)),
+        "files are named <40-hex infohash>.pack: {files:?}"
+    );
+}

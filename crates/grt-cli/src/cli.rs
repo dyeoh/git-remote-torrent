@@ -26,6 +26,9 @@ pub(crate) enum Command {
     Seed(SeedArgs),
     /// Show the signed manifest and compare it with the local refs.
     Status,
+    /// Copy the signed manifest's packs into a directory as
+    /// `<infohash>.pack`, ready to upload to an HTTP mirror.
+    Export(ExportArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -86,6 +89,17 @@ pub(crate) struct SignArgs {
     /// Publish under `torrent://<key>/<name>` instead of `torrent://<key>`.
     #[arg(long, default_value = "")]
     pub(crate) name: String,
+    /// Base URL of an HTTP mirror serving `<infohash>.pack` files (see
+    /// `git torrent export`). Repeat for several. Without it, the previous
+    /// manifest's mirrors are kept.
+    #[arg(long = "mirror", value_name = "URL")]
+    pub(crate) mirrors: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct ExportArgs {
+    /// Directory to copy the packs into; created if missing.
+    pub(crate) dir: PathBuf,
 }
 
 #[derive(Debug, Args)]

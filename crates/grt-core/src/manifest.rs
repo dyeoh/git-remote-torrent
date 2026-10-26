@@ -19,6 +19,10 @@ const KEY_REFS: &[u8] = b"refs";
 const KEY_PACKS: &[u8] = b"packs";
 const KEY_PACKS_V2: &[u8] = b"packs2";
 const KEY_UPSTREAM: &[u8] = b"up";
+const KEY_MIRRORS: &[u8] = b"ws";
+
+/// Longest mirror base URL accepted, in bytes.
+pub const MAX_MIRROR_LEN: usize = 200;
 
 /// A repository's published state: its refs and the packs that hold their objects.
 ///
@@ -32,6 +36,7 @@ const KEY_UPSTREAM: &[u8] = b"up";
 /// | `packs2` | optional; concatenated 32-byte v2 infohashes of the same packs, same order |
 /// | `head` | optional ref name that `HEAD` points to |
 /// | `up` | optional canonical upstream URL |
+/// | `ws` | optional list of HTTP mirror base URLs serving `<infohash>.pack` |
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Manifest {
     head: Option<RefName>,
@@ -39,6 +44,7 @@ pub struct Manifest {
     packs: Vec<InfoHash>,
     packs_v2: Option<Vec<InfoHashV2>>,
     upstream: Option<String>,
+    mirrors: Vec<String>,
 }
 
 impl Manifest {
@@ -142,6 +148,28 @@ impl Manifest {
         self.upstream = upstream;
     }
 
+    /// HTTP mirrors that serve this manifest's packs as
+    /// `<base>/<infohash>.pack`. Downloads from them are checked against the
+    /// infohash, so a mirror needs no trust.
+    pub fn mirrors(&self) -> &[String] {
+        &self.mirrors
+    }
+
+    /// Sets the HTTP mirror base URLs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidField`] if a URL is not `http://` or
+    /// `https://`, is longer than [`MAX_MIRROR_LEN`], or contains whitespace
+    /// or control characters.
+    pub fn set_mirrors(&mut self, mirrors: Vec<String>) -> Result<(), Error> {
+        for mirror in &mirrors {
+            check_mirror(mirror)?;
+        }
+        self.mirrors = mirrors;
+        Ok(())
+    }
+
     /// Encodes the manifest as canonical bencode.
     pub fn encode(&self) -> Vec<u8> {
         let refs = self
@@ -184,6 +212,14 @@ impl Manifest {
                 KEY_UPSTREAM.to_vec(),
                 Value::Bytes(upstream.as_bytes().to_vec()),
             );
+        }
+        if !self.mirrors.is_empty() {
+            let mirrors = self
+                .mirrors
+                .iter()
+                .map(|mirror| Value::Bytes(mirror.as_bytes().to_vec()))
+                .collect();
+            dict.insert(KEY_MIRRORS.to_vec(), Value::List(mirrors));
         }
         Value::Dict(dict).encode()
     }
@@ -262,8 +298,38 @@ impl Manifest {
             manifest.set_upstream(Some(upstream.to_owned()));
         }
 
+        if let Some(mirrors) = dict.get(KEY_MIRRORS) {
+            let mirrors = mirrors
+                .as_list()
+                .ok_or(invalid("ws", "not a list"))?
+                .iter()
+                .map(|mirror| {
+                    let mirror = mirror
+                        .as_bytes()
+                        .ok_or(invalid("ws", "has a non-string entry"))?;
+                    std::str::from_utf8(mirror)
+                        .map(str::to_owned)
+                        .map_err(|_| invalid("ws", "not UTF-8"))
+                })
+                .collect::<Result<Vec<String>, Error>>()?;
+            manifest.set_mirrors(mirrors)?;
+        }
+
         Ok(manifest)
     }
+}
+
+fn check_mirror(mirror: &str) -> Result<(), Error> {
+    if !(mirror.starts_with("https://") || mirror.starts_with("http://")) {
+        return Err(invalid("ws", "a mirror is not an http:// or https:// URL"));
+    }
+    if mirror.len() > MAX_MIRROR_LEN {
+        return Err(invalid("ws", "a mirror URL is longer than 200 bytes"));
+    }
+    if mirror.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(invalid("ws", "a mirror URL contains whitespace"));
+    }
+    Ok(())
 }
 
 fn required<'a>(
@@ -301,6 +367,9 @@ mod tests {
         manifest.push_pack(InfoHash::from([1; 20]));
         manifest.push_pack(InfoHash::from([2; 20]));
         manifest.set_upstream(Some("https://github.com/org/repo.git".to_owned()));
+        manifest
+            .set_mirrors(vec!["https://example.org/packs".to_owned()])
+            .unwrap();
         manifest
     }
 
@@ -392,6 +461,28 @@ mod tests {
             manifest.packs_v2(),
             None,
             "a new pack invalidates the v2 list"
+        );
+    }
+
+    #[test]
+    fn rejects_bad_mirrors() {
+        for mirror in [
+            "file:///etc/passwd",
+            "ftp://example.org/packs",
+            "https://example.org/a b",
+            "https://example.org/\n",
+        ] {
+            assert!(
+                Manifest::new()
+                    .set_mirrors(vec![mirror.to_owned()])
+                    .is_err(),
+                "{mirror:?} must be rejected"
+            );
+        }
+        let long = format!("https://example.org/{}", "a".repeat(MAX_MIRROR_LEN));
+        assert!(
+            Manifest::new().set_mirrors(vec![long]).is_err(),
+            "over-long mirrors are rejected"
         );
     }
 

@@ -48,7 +48,8 @@ or for one command with `git -c`.
 | `torrent.dhtBootstrap` | the public DHT | `host:port` of a DHT node to join instead; repeat for several |
 | `torrent.peer` | none | `host:port` of a peer to ask for packs; repeat for several |
 | `torrent.peerDht` | `true` | Find pack peers on the DHT. Turn off for LAN-only or test setups |
-| `torrent.fetchTimeout` | `120` | Seconds allowed for resolving the manifest, and for each pack |
+| `torrent.mirror` | none | Base URL of an HTTP mirror to try after peers, besides those the manifest lists; repeat for several |
+| `torrent.fetchTimeout` | `120` | Seconds allowed for resolving the manifest, and for each pack. When mirrors are available, peers get at most 30 seconds per pack before the mirrors are tried |
 
 ## Current support
 

@@ -3,7 +3,8 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::io::{BufRead, BufReader, Write};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -115,6 +116,7 @@ struct Publisher {
     key: PublisherKey,
     name: String,
     upstream: Option<String>,
+    mirrors: Vec<String>,
     bootstrap: Vec<String>,
     swarm: PackSwarm,
     peer: SocketAddr,
@@ -142,6 +144,7 @@ impl Publisher {
             key: PublisherKey::generate().expect("key"),
             name: name.to_owned(),
             upstream,
+            mirrors: Vec::new(),
             bootstrap: testnet.bootstrap.clone(),
             swarm,
             peer,
@@ -174,6 +177,9 @@ impl Publisher {
             .set_head(repo.head_target().expect("head"))
             .expect("head is a published ref");
         manifest.set_upstream(self.upstream.clone());
+        manifest
+            .set_mirrors(self.mirrors.clone())
+            .expect("valid mirrors");
 
         let (mut packs, exclude, seq) = match &self.signed {
             Some(previous) => (
@@ -201,6 +207,59 @@ impl Publisher {
         self.dht.publish(&signed, cas).await.expect("publish");
         self.signed = Some(signed);
     }
+}
+
+impl Publisher {
+    /// Lays the chain out as `<dir>/<infohash>.pack`, like `git torrent export`.
+    fn export(&self, dir: &Path) {
+        fs::create_dir_all(dir).expect("export dir");
+        let signed = self.signed.as_ref().expect("published");
+        for (index, pack) in signed.manifest().packs().iter().enumerate() {
+            fs::copy(
+                self.packs.join(index.to_string()).join("pack"),
+                dir.join(format!("{pack}.pack")),
+            )
+            .expect("export pack");
+        }
+    }
+}
+
+/// Serves files under `root` over HTTP until the test exits.
+fn serve(root: PathBuf) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("address"));
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(&stream);
+            let mut request = String::new();
+            let mut line = String::new();
+            if reader.read_line(&mut request).is_err() {
+                continue;
+            }
+            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                line.clear();
+            }
+            let path = request.split(' ').nth(1).unwrap_or("/");
+            let response = match fs::read(root.join(path.trim_start_matches('/'))) {
+                Ok(body) => {
+                    let mut response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend(body);
+                    response
+                }
+                Err(_) => {
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_vec()
+                }
+            };
+            let _ = stream.write_all(&response);
+        }
+    });
+    base
 }
 
 fn clone_head(sandbox: &Sandbox) -> ObjectId {
@@ -331,4 +390,39 @@ async fn hybrid_fetch_prefers_the_swarm_and_falls_back_to_the_upstream() {
         first,
         "the upstream served the clone"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
+    let sandbox = Sandbox::new();
+    let first = sandbox.commit("README");
+    let upstream = sandbox.path("upstream.git");
+    sandbox.ok(
+        sandbox.dir.path(),
+        &["clone", "-q", "--bare", "source", "upstream.git"],
+    );
+    let url = format!("file://{}", upstream.display());
+    let base = serve(sandbox.path("www"));
+    let mut publisher = Publisher::start(&sandbox, "", Some(url.clone())).await;
+    publisher.mirrors = vec![format!("{base}/packs")];
+    publisher.publish(&sandbox).await;
+    publisher.export(&sandbox.path("www").join("packs"));
+
+    // Everything but the DHT and a static file host goes away.
+    publisher.swarm.stop().await;
+    fs::rename(&upstream, sandbox.path("taken-down.git")).expect("take the upstream down");
+
+    let address = format!("remote.origin.torrentAddress={}", publisher.address());
+    let stderr = sandbox.swarm_ok(
+        &publisher,
+        sandbox.dir.path(),
+        &["clone", "-c", &address, &format!("torrent::{url}"), "clone"],
+    );
+    assert!(
+        stderr.contains("the upstream is unavailable")
+            && stderr
+                .contains("Fetched 1 pack(s) of manifest #1 from the swarm, 1 from HTTP mirrors"),
+        "the pack came from the mirror the manifest lists:\n{stderr}"
+    );
+    assert_eq!(clone_head(&sandbox), first, "cloned from the mirror");
 }

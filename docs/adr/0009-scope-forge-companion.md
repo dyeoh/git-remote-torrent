@@ -38,5 +38,6 @@ is dropped. Interop with Radicle and Software Heritage is documented, not built.
   and this repository publishing itself.
 - The README describes durability honestly: a signed pointer plus a mirror, with peers
   as a bonus.
-- Features that need a long-running process are out of scope, except `seed`, which stays
-  a foreground command for people who want to seed.
+- Pure P2P (`torrent://<key>`, no forge) remains a first-class mode. Its always-on peer is
+  `git torrent seed` run by a service manager (systemd, launchd), not a new daemon.
+- Features that need a long-running process of their own are out of scope.

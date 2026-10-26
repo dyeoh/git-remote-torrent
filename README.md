@@ -60,13 +60,51 @@ takes over the jobs a single server handles worst:
   `git clone torrent::https://…` is an opt-in prefix. A host can offer it to the users who
   want it, and their workflow doesn't change.
 
-## How it compares
+## Prior art and how this compares
 
-[GitTorrent](https://github.com/cjb/GitTorrent) tried git over BitTorrent in 2015;
-[Radicle](https://radicle.dev) is the active peer-to-peer forge; Software Heritage archives
-public code. This project stays a small companion to the forge you already use.
-[Prior art](docs/explanation/prior-art.md) explains what it adds and what it leaves to
-those projects.
+Peer-to-peer git has been tried before. This is what exists (researched October 2026), and
+where this project fits. The longer version, with the reasoning behind the scope, is in
+[docs/explanation/prior-art.md](docs/explanation/prior-art.md) and
+[ADR-0009](docs/adr/0009-scope-forge-companion.md).
+
+| Project | What it does | Status | Relation to this project |
+|---|---|---|---|
+| [GitTorrent](https://github.com/cjb/GitTorrent) (2015) | Git over BitTorrent: mainline DHT, a key-signed BEP 44 pointer, packfiles as torrents | Inactive since 2015; bootstrap server offline since 2017 ([ctrl.blog](https://www.ctrl.blog/entry/git-p2p-compared.html)) | **Nearly the same design.** This project is, in effect, GitTorrent revived and hardened |
+| [Radicle](https://radicle.dev/guides/protocol) | P2P code collaboration: Ed25519 identities, signed refs, seed nodes, issues and patches | Active: about 8,000 repos and 600+ nodes weekly ([FAQ, April 2026](https://radicle.dev/faq)) | **The P2P forge.** P2P only, with its own network and node. Collaboration and daemons belong there |
+| [Software Heritage](https://ar5iv.labs.arxiv.org/html/1909.10760) | A universal archive of public source code with full history | Active, institutional | **Archival.** Read-only; not a live remote |
+| IPFS and Dat remotes (`git-remote-ipld`, igis, HyperGit) | Git over IPFS or Dat | Mostly inactive ([ctrl.blog](https://www.ctrl.blog/entry/git-p2p-compared.html)) | Same goal; a DHT lookup for each chunk, or central trackers |
+| Git LFS P2P transfer agents (e.g. [radicle-lfs-transfer](https://git.hswro.org/mab122/radicle-lfs-transfer)) | Large files through LFS [custom or standalone agents](https://github.com/git-lfs/git-lfs/blob/main/docs/custom-transfers.md) | Niche, early | **A different layer:** LFS blobs only. Refs and git objects still travel over git |
+| Plain mirrors (a second forge, pull mirrors, self-hosting) | Copies on other hosts | Everywhere | Covers most takedowns, but nothing proves a mirror is faithful |
+| BitTorrent ([BEP 19](https://www.bittorrent.org/beps/bep_0019.html) web seeds) and IPFS (node or gateways) | Content delivery that runs central, P2P, or both | Mature | **Dual-mode precedents.** Their mutable pointers, though, stay with a central party or need your own node |
+
+**What this project adds**
+- **No migration.** `torrent::https://…` sits in front of the forge you already use.
+- **No daemon to clone.** One helper binary on the mainline DHT. It works from a laptop and
+  from GitHub-hosted runners.
+- **Verifiable static mirrors.** A signed manifest plus packs checked with SHA-1 and
+  SHA-256 ([ADR-0008](docs/adr/0008-hybrid-torrents-and-sha256.md)), so any host can be an
+  untrusted mirror, including the forge's own release assets.
+- **Authority in a key, not a host.** That is what lets the same repository run with a
+  forge or with no server at all (below).
+
+**What it leaves to others:** collaboration (Radicle), long-term archival (Software
+Heritage, worth using as well), and large files (Git LFS).
+
+**Honest limits.** P2P git tools have failed on adoption, not technology. GitTorrent had the
+best design of its generation and still died without seeders. A repository stays reachable
+here only while someone keeps its manifest published (`git torrent republish`, which needs
+no key) and someone serves its packs (a seeder or a mirror). One machine publishes each
+address; there is no multi-writer collaboration.
+
+## Two ways to run it
+
+| | Forge plus P2P | Pure P2P |
+|---|---|---|
+| Remote | `torrent::https://github.com/you/project.git` | `torrent://<key>[/<name>]` |
+| Canonical source | The forge, while it's up | The publisher's signed manifest |
+| Packs come from | Peers and mirrors first, the forge as fallback | Peers and mirrors |
+| If the forge goes away | The swarm serves refs and packs; `reconcile` replays pushes when it returns | Nothing to lose |
+| Needs running | Nothing new | An always-on `git torrent seed` (a service, not a daemon) or a mirror |
 
 ## Documentation
 

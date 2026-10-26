@@ -20,6 +20,24 @@ The 2020 comparison concluded that P2P git tools fail through **adoption and
 bootstrapping**, not through their technology. GitTorrent had the best overlay design and
 still died without users or seeders.
 
+## Two modes, both first-class
+
+Most systems that mix central and peer-to-peer delivery keep the *authority* central: a
+registry's tags, a CDN's catalogue, an immutable torrent file. Their peers carry only bytes.
+[Dragonfly](https://d7y.io/blog/2026/01/15/cncf-announces-dragonfly-graduation), for
+example, needs its scheduler and origin. BitTorrent (trackers or the trackerless DHT) and
+IPFS (your own node or central gateways) do run either way, but only for content that never
+changes.
+
+Here, authority is the publisher's Ed25519 key, and the pointer to the latest state is a
+BEP 44 item on the DHT. So the same repository runs:
+
+- **with a forge:** `torrent::https://…`. The forge stays canonical, and peers and mirrors
+  take load off it and cover outages;
+- **with no server at all:** `torrent://<key>`. Clone, fetch and push work peer to peer. The
+  only extra requirement is an always-on peer: `git torrent seed` under a service manager,
+  or someone republishing alongside a mirror.
+
 ## What this project adds
 
 1. **No migration.** `torrent::https://github.com/…` sits in front of the forge you

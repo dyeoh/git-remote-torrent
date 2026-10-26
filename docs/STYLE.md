@@ -68,8 +68,8 @@ module may `#[allow]` it. All diagnostics go through `tracing` to stderr.
 
 ## Async and concurrency
 
-- `grt-core` and `grt-git` are synchronous. Tokio is used only in `grt-swarm`,
-  `grt-upstream`, `grt-helper` and `grt-daemon`.
+- `grt-core`, `grt-git` and `grt-upstream` are synchronous. Tokio is used only in `grt-swarm`,
+  `grt-helper` and `grt-cli`.
 - Borrow first. Use `Arc` only to share across task boundaries. Clone only when a deep
   copy is actually needed.
 - Never recover a poisoned mutex.

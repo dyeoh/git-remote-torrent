@@ -1357,14 +1357,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "grt-daemon"
-version = "0.3.0"
-dependencies = [
- "anyhow",
- "grt-core",
-]
-
-[[package]]
 name = "grt-git"
 version = "0.3.0"
 dependencies = [

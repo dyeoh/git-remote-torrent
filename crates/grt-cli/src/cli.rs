@@ -33,6 +33,10 @@ pub(crate) enum Command {
     /// Replace the pack chain with one pack and sign the next manifest with
     /// the same refs. `sign` does this by itself when the manifest is full.
     Compact(CompactArgs),
+    /// Take over publishing an address on this machine (a CI runner or a new
+    /// laptop): fetch its newest manifest and pack chain, verify them, and
+    /// set them up so `sign` and `git push` continue the chain.
+    Adopt(AdoptArgs),
     /// Store the newest verified manifest of each address on the DHT again,
     /// so it does not expire. Needs no key: anyone can keep a repository
     /// findable.
@@ -142,6 +146,24 @@ pub(crate) struct CompactArgs {
     /// again.
     #[arg(long)]
     pub(crate) prune: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AdoptArgs {
+    /// The repository name the address was published under (`--name` of
+    /// `sign`); empty for `torrent://<key>`.
+    #[arg(long, default_value = "")]
+    pub(crate) name: String,
+    /// Another HTTP mirror to fetch packs from, besides the manifest's.
+    /// Repeatable.
+    #[arg(long = "mirror", value_name = "URL")]
+    pub(crate) mirrors: Vec<String>,
+    /// A peer to fetch packs from if no mirror has them. Repeatable.
+    #[arg(long = "peer", value_name = "HOST:PORT")]
+    pub(crate) peers: Vec<std::net::SocketAddr>,
+    /// Join a private DHT through this node instead of the public one.
+    #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
+    pub(crate) dht_bootstrap: Vec<String>,
 }
 
 #[derive(Debug, Args)]

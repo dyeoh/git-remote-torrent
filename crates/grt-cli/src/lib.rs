@@ -7,6 +7,7 @@
 mod cli;
 mod export;
 mod key;
+mod reconcile;
 mod seed;
 mod sign;
 mod status;
@@ -31,5 +32,6 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Seed(args) => seed::run(&args, cwd, out),
         Command::Status => status::run(cwd, out),
         Command::Export(args) => export::run(&args, cwd, out),
+        Command::Reconcile(args) => reconcile::run(&args, cwd, out),
     }
 }

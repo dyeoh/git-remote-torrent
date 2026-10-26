@@ -1328,7 +1328,7 @@ dependencies = [
 
 [[package]]
 name = "grt-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "grt-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
@@ -1358,7 +1358,7 @@ dependencies = [
 
 [[package]]
 name = "grt-daemon"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "grt-core",
@@ -1366,7 +1366,7 @@ dependencies = [
 
 [[package]]
 name = "grt-git"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "grt-core",
  "tempfile",
@@ -1375,7 +1375,7 @@ dependencies = [
 
 [[package]]
 name = "grt-helper"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "grt-core",
@@ -1390,7 +1390,7 @@ dependencies = [
 
 [[package]]
 name = "grt-swarm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "grt-core",
  "grt-git",
@@ -1404,7 +1404,7 @@ dependencies = [
 
 [[package]]
 name = "grt-upstream"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "grt-core",
  "thiserror 2.0.21",

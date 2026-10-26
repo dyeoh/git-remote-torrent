@@ -7,8 +7,7 @@
 | `grt-swarm` | Mainline DHT (BEP 44/46), hybrid v1/v2 pack torrents, HTTP mirrors, local discovery | yes |
 | `grt-upstream` | Canonical HTTPS/SSH remote; forge key discovery | yes |
 | `grt-helper` | `git-remote-torrent`: the remote-helper protocol | yes |
-| `grt-cli` | `git-torrent`: key, trust, sign, seed, status, export, compact, reconcile | yes |
-| `grt-daemon` | `git-torrentd`: background seeder, push webhooks, mDNS announce | yes |
+| `grt-cli` | `git-torrent`: key, trust, sign, seed, publish, republish, adopt, export, verify-mirror, compact, reconcile, status | yes |
 
 ## Data model
 

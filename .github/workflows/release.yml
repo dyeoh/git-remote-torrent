@@ -62,7 +62,7 @@ jobs:
         run: |
           name=git-remote-torrent-${TAG:-dry-run}-${{ matrix.target }}
           mkdir "$name"
-          for bin in git-remote-torrent git-torrent git-torrentd; do
+          for bin in git-remote-torrent git-torrent; do
             cp "target/${{ matrix.target }}/release/$bin" "$name/"
           done
           cp README.md LICENSE-MIT LICENSE-APACHE "$name/"

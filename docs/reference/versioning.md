@@ -7,7 +7,7 @@ We follow [Semantic Versioning 2.0](https://semver.org/). All crates are release
 
 A change to any of these is breaking:
 
-1. **CLI**: subcommands, flags and exit codes of `git-torrent` and `git-torrentd`.
+1. **CLI**: subcommands, flags and exit codes of `git-torrent` and `git-remote-torrent`.
 2. **URL syntax** (see [url-syntax.md](url-syntax.md)).
 3. **Manifest wire format**: has its own `v` field, versioned separately (below).
 4. **Library crate APIs** (`grt-*`), checked by `cargo-semver-checks` in CI.
@@ -61,5 +61,5 @@ on `main` after the merge. See [ADR-0005](../adr/0005-git-cliff-release-flow.md)
 | 0.1 | Protocol core and trust |
 | 0.2 | Hybrid streaming, DHT, kill-switch demo |
 | 0.3 | Read-write sync |
-| 0.4 | Daemon and LAN mesh |
+| 0.4 | Mirrors and CI publishing |
 | 1.0 | Manifest format frozen, hardened |

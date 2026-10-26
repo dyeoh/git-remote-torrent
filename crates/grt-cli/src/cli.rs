@@ -117,6 +117,10 @@ pub(crate) struct SeedArgs {
     /// listen address.
     #[arg(long)]
     pub(crate) no_peer_dht: bool,
+    /// Ask your router to forward the listen port (UPnP), so peers outside
+    /// your network can download packs. Changes the router's configuration.
+    #[arg(long)]
+    pub(crate) upnp: bool,
     /// Seconds between manifest republishes.
     #[arg(long, default_value_t = 1800, hide = true)]
     pub(crate) republish_secs: u64,

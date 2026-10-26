@@ -34,6 +34,7 @@ async fn seed(
     let mut config = SwarmConfig::default();
     config.listen = args.listen;
     config.dht = !args.no_peer_dht;
+    config.upnp = args.upnp;
     let swarm = PackSwarm::start(&repo.git_dir().join("torrent").join("session"), config).await?;
     for &pack in signed.manifest().packs() {
         let path = sign::pack_path(repo, pack);

@@ -5,8 +5,8 @@ central host goes away. Any HTTPS/SSH remote (GitHub, a self-hosted forge, a bar
 upstream. Every push is also signed with Ed25519 and seeded to a BitTorrent swarm, so a
 takedown, outage or revoked account doesn't take the code with it.
 
-> **Status: pre-alpha (0.x).** `torrent::<url>` remotes work against any upstream, and
-> clones and fetches from the swarm are landing for 0.2. See the
+> **Status: pre-alpha (0.x).** Clones and fetches work from the swarm, including after
+> the upstream is gone. Pushes still go to the upstream only. See the
 > [roadmap](docs/explanation/roadmap.md). While the version is 0.y.z, any minor release
 > may contain breaking changes.
 
@@ -14,19 +14,20 @@ takedown, outage or revoked account doesn't take the code with it.
 
 ```sh
 cargo install --git https://github.com/dyeoh/git-remote-torrent grt-helper grt-cli
-git clone torrent::https://github.com/octocat/Hello-World.git
-cd Hello-World
-git torrent key use ~/.ssh/id_ed25519   # sign with the key your forge already knows
-git torrent seed                        # sign, publish to the DHT, seed until Ctrl-C
+
+# Publisher: sign your refs, seed your objects, publish to the DHT
+cd your-project
+git torrent key use ~/.ssh/id_ed25519      # or: git torrent key generate
+git torrent seed                           # prints your torrent://<key> address
+
+# Anyone, even after the upstream is gone:
+git clone torrent://<key>                                           # pure P2P
+git clone -c remote.origin.torrentAddress=torrent://<key> \
+  torrent::https://github.com/you/project.git                      # upstream + swarm
 ```
 
-## Quickstart (planned)
-
-```sh
-cargo install git-remote-torrent                                  # installs git-remote-torrent, git-torrent, git-torrentd
-git clone torrent::https://github.com/org/project.git             # hybrid: upstream + swarm
-git clone torrent://<publisher-ed25519-key>                       # pure P2P, no server at all
-```
+The [kill-switch tutorial](docs/tutorials/first-immortal-repo.md) walks through it on one
+machine in ten minutes.
 
 Your git commands stay the same: `clone`, `fetch` and `push` work as usual.
 
@@ -47,8 +48,8 @@ takes over the jobs a single server handles worst:
   an outage, a region goes down or a storage incident happens, developers keep fetching
   and the history can be restored from the swarm.
 - **The host as just one more seed.** A forge can serve packs over plain HTTP as a
-  BitTorrent web seed (BEP 19). It stays useful as a fast, reliable source without being
-  the single point of failure.
+  [mirror](docs/how-to/http-mirrors.md), checked against the signed manifest. It stays
+  useful as a fast, reliable source without being the single point of failure.
 - **Trust that outlives the server.** Ref manifests are Ed25519-signed with keys that
   developers already publish to their forge. Peers can verify what the host says is
   canonical, and they can still verify it later if the host goes away.
@@ -59,7 +60,7 @@ takes over the jobs a single server handles worst:
 ## Documentation
 
 - [Tutorial: your first immortal repo](docs/tutorials/first-immortal-repo.md)
-- [How to set up keys and trust](docs/how-to/keys-and-trust.md)
+- [How to set up keys and trust](docs/how-to/keys-and-trust.md) · [Mirror packs over HTTP](docs/how-to/http-mirrors.md)
 - [Architecture](docs/explanation/architecture.md) · [Roadmap](docs/explanation/roadmap.md) · [ADRs](docs/adr/)
 - [Contributing](CONTRIBUTING.md) · [Style guide](docs/STYLE.md) · [Security](SECURITY.md)
 

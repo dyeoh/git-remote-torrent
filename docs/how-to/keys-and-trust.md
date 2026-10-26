@@ -72,6 +72,7 @@ example, from another machine), it stops rather than overwrite it.
 | `--listen 0.0.0.0:6881` | Fixed address for peers to connect to; by default a random port |
 | `--dht-bootstrap HOST:PORT` | Join a private DHT instead of the public one (repeatable) |
 | `--no-peer-dht` | Don't announce packs on the BitTorrent DHT; peers must be given the listen address |
+| `--upnp` | Ask your router to forward the listen port, so peers outside your network can connect |
 | `--mirror URL` | Sign an HTTP mirror of the packs into the manifest (repeatable); see [Mirror packs over HTTP](http-mirrors.md) |
 
 The signed manifest is cached at `.git/torrent/manifest` and is re-verified every time it

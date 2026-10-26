@@ -1,5 +1,4 @@
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::time::Duration;
 
@@ -61,11 +60,7 @@ async fn seed(
     )?;
     out.flush()?;
 
-    let dht = if args.dht_bootstrap.is_empty() {
-        ManifestDht::public()?
-    } else {
-        ManifestDht::with_bootstrap(&args.dht_bootstrap, bind_address(&args.dht_bootstrap))?
-    };
+    let dht = ManifestDht::connect(&args.dht_bootstrap)?;
     publish(&dht, signed).await?;
     writeln!(
         out,
@@ -116,17 +111,4 @@ async fn publish(dht: &ManifestDht, signed: &SignedManifest) -> anyhow::Result<(
     };
     dht.publish(signed, cas).await?;
     Ok(())
-}
-
-/// Private networks of loopback nodes need a loopback socket.
-fn bind_address(bootstrap: &[String]) -> Ipv4Addr {
-    let all_loopback = bootstrap.iter().all(|node| {
-        node.parse::<SocketAddr>()
-            .is_ok_and(|addr| addr.ip().is_loopback())
-    });
-    if all_loopback {
-        Ipv4Addr::LOCALHOST
-    } else {
-        Ipv4Addr::UNSPECIFIED
-    }
 }

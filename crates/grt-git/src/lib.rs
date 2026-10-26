@@ -8,4 +8,4 @@ mod pack;
 mod repo;
 
 pub use crate::error::Error;
-pub use crate::repo::{Repo, global_config, set_global_config};
+pub use crate::repo::{Repo, config_all, global_config, set_global_config};

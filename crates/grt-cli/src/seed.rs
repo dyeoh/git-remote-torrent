@@ -23,7 +23,7 @@ pub(crate) fn run(args: &SeedArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::R
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let signed = sign::sign_next(&repo, &key, &args.sign, out).await?;
+        let signed = sign::sign_next(&repo, &key, &args.sign, sign::Chain::Extend, out).await?;
         seed(&repo, &signed, args, out).await
     })
 }

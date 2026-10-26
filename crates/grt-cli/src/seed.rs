@@ -176,7 +176,7 @@ impl Drop for PidFile {
 
 /// Publishes `signed` unless a different manifest at least as new is already
 /// on the DHT, which means another machine published under this address.
-async fn publish(dht: &ManifestDht, signed: &SignedManifest) -> anyhow::Result<()> {
+pub(crate) async fn publish(dht: &ManifestDht, signed: &SignedManifest) -> anyhow::Result<()> {
     let current = dht.resolve(&signed.public_key(), signed.salt()).await?;
     let cas = match current {
         Some(current) if current.seq() > signed.seq() => bail!(

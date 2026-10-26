@@ -41,6 +41,21 @@ git torrent seed --mirror https://you.github.io/project-packs
 previous manifest unless you pass `--mirror` again. Each URL is up to 200 bytes and comes
 out of the manifest's 1000-byte budget.
 
+## 4. Check the mirror, then publish without seeding
+
+Before a manifest that names the mirror goes out, check that the mirror really serves every
+pack intact:
+
+```sh
+git torrent verify-mirror              # the manifest's mirrors; or pass URLs to check
+git torrent publish                    # publish the signed manifest once, and exit
+```
+
+`verify-mirror` downloads each pack back and checks both of its infohashes. It fails if
+any pack is missing or altered. `publish` puts the manifest on the DHT once, with the same
+conflict checks as `seed`, and seeds nothing, so cloners get packs from the mirror. This
+is the path for CI, where nothing keeps running.
+
 ## For cloners
 
 Mirrors listed in the manifest are used automatically. A cloner can add mirrors of their

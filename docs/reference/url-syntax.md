@@ -45,6 +45,7 @@ or for one command with `git -c`.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `remote.<name>.torrentAddress` | unset | The `torrent://` address that backs a hybrid remote |
+| `remote.<name>.torrentPublish` | `false` | Pushes to this remote sign a new manifest with your signing key. Set it only on remotes whose address is your key |
 | `torrent.dhtBootstrap` | the public DHT | `host:port` of a DHT node to join instead; repeat for several |
 | `torrent.peer` | none | `host:port` of a peer to ask for packs; repeat for several |
 | `torrent.peerDht` | `true` | Find pack peers on the DHT. Turn off for LAN-only or test setups |
@@ -55,5 +56,5 @@ or for one command with `git -c`.
 
 | Mode | `clone` / `fetch` | `push` |
 |------|-------------------|--------|
-| Hybrid | Refs from the upstream, objects from the swarm when the manifest covers them; the swarm serves both when the upstream is gone | To the upstream |
-| Pure P2P | From the swarm | Not supported yet (0.3); push to the upstream and run `git torrent seed` |
+| Hybrid | Refs from the upstream, objects from the swarm when the manifest covers them; the swarm serves both when the upstream is gone | To the upstream; with `torrentPublish`, what the upstream accepts is also signed into the manifest |
+| Pure P2P | From the swarm | With `torrentPublish`, signed into the manifest. Non-fast-forward updates need a force push |

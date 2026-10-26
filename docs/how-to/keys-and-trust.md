@@ -77,3 +77,28 @@ example, from another machine), it stops rather than overwrite it.
 
 The signed manifest is cached at `.git/torrent/manifest` and is re-verified every time it
 is read. Each `sign` or `seed` with the same key and name increments the sequence number.
+
+## Publish on push
+
+Instead of running `git torrent sign` by hand, let `git push` sign for you:
+
+```sh
+git config remote.origin.torrentAddress torrent://<your key>   # hybrid remotes only
+git config remote.origin.torrentPublish true
+git torrent seed                                               # in another terminal
+git push origin main
+```
+
+Each push signs a new manifest. It holds the previously published refs, plus the ones you
+pushed, minus the ones you deleted; your other local branches stay private. The manifest
+is signed with `git torrent sign --update <ref>=<oid>` (and `--delete <ref>`), which you
+can also run yourself.
+
+A running `git torrent seed` notices the new manifest within two seconds, seeds its new
+pack and publishes it, using the previous sequence number as compare-and-swap. If no
+seeder is running, the push says so, and the next `git torrent seed` publishes it.
+
+- **Hybrid remotes:** the upstream decides. Only the refs it accepts are signed.
+- **Pure `torrent://` remotes:** the manifest is the only copy of the refs, so updates
+  that would rewind a published ref are rejected unless you force them (`git push
+  --force` or `+ref`).

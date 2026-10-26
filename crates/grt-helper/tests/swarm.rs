@@ -313,8 +313,8 @@ async fn pure_clone_and_incremental_fetch_from_the_swarm() {
     let output = sandbox.swarm_git(&publisher, &clone, &["push", "origin", "main"]);
     assert!(
         !output.status.success()
-            && String::from_utf8_lossy(&output.stderr).contains("not supported yet"),
-        "pushing to a pure swarm remote is refused with a reason"
+            && String::from_utf8_lossy(&output.stderr).contains("not yours to publish"),
+        "pushing to someone else's swarm remote is refused with a reason"
     );
 }
 

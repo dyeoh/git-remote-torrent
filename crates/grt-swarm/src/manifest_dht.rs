@@ -1,4 +1,5 @@
 use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use grt_core::{PublicKey, Seq, SignedManifest};
 use mainline::async_dht::AsyncDht;
@@ -6,6 +7,12 @@ use mainline::errors::PutMutableError;
 use mainline::{Dht, MutableItem};
 
 use crate::error::Error;
+
+/// Lookups made before `resolve` concludes that nothing is published.
+pub const RESOLVE_ATTEMPTS: u32 = 3;
+
+/// Pause between lookups that found nothing.
+const RESOLVE_RETRY_DELAY: Duration = Duration::from_secs(1);
 
 /// Publishes and resolves signed manifests as BEP 44 mutable items.
 #[derive(Debug, Clone)]
@@ -93,7 +100,8 @@ impl ManifestDht {
     /// Finds the most recent manifest published by `key` under `salt`, and
     /// verifies it.
     ///
-    /// Returns `Ok(None)` if no node has one.
+    /// Returns `Ok(None)` if no node has one after [`RESOLVE_ATTEMPTS`]
+    /// lookups.
     ///
     /// # Errors
     ///
@@ -104,11 +112,23 @@ impl ManifestDht {
         key: &PublicKey,
         salt: &[u8],
     ) -> Result<Option<SignedManifest>, Error> {
-        let Some(item) = self
-            .dht
-            .get_mutable_most_recent(&key.to_bytes(), bep44_salt(salt))
-            .await
-        else {
+        // A lookup from a client that has only just joined can end before it
+        // reaches the nodes holding the item; each retry starts from a
+        // fuller routing table.
+        let mut found = None;
+        for attempt in 0..RESOLVE_ATTEMPTS {
+            if attempt > 0 {
+                tokio::time::sleep(RESOLVE_RETRY_DELAY).await;
+            }
+            found = self
+                .dht
+                .get_mutable_most_recent(&key.to_bytes(), bep44_salt(salt))
+                .await;
+            if found.is_some() {
+                break;
+            }
+        }
+        let Some(item) = found else {
             return Ok(None);
         };
         // mainline checks the signature too, but trust only grt-core's

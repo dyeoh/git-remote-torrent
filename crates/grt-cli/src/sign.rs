@@ -82,6 +82,22 @@ pub(crate) async fn sign_next(
             "Rebuilding the pack chain as one SHA-256-verified (hybrid) pack."
         )?;
     }
+    // Nothing changed: keep the published manifest rather than bumping its
+    // sequence number, so restarting a seeder doesn't churn the address.
+    if chain == Chain::Extend
+        && let (Some(previous), Some(packs)) = (&previous, &previous_chain)
+        && with_packs(&refs, packs) == *previous.manifest()
+    {
+        writeln!(
+            out,
+            "Manifest #{} is up to date ({} ref(s), {} pack(s)).",
+            previous.seq().get(),
+            previous.manifest().refs().len(),
+            previous.manifest().packs().len()
+        )?;
+        print_address(previous, out)?;
+        return Ok(previous.clone());
+    }
     if chain == Chain::Extend
         && let Some(mut packs) = previous_chain
     {
@@ -138,14 +154,7 @@ pub(crate) async fn sign_next(
             .map(|head| format!(", HEAD -> {head}"))
             .unwrap_or_default()
     )?;
-    let address = RemoteUrl::Swarm {
-        key: signed.public_key(),
-        salt: signed.salt().to_vec(),
-    };
-    writeln!(out, "Address: {address}")?;
-    for mirror in manifest.mirrors() {
-        writeln!(out, "Mirror: {mirror}")?;
-    }
+    print_address(&signed, out)?;
     Ok(signed)
 }
 
@@ -209,6 +218,18 @@ fn refs_manifest(
         _ => args.mirrors.clone(),
     })?;
     Ok(manifest)
+}
+
+fn print_address(signed: &SignedManifest, out: &mut dyn Write) -> anyhow::Result<()> {
+    let address = RemoteUrl::Swarm {
+        key: signed.public_key(),
+        salt: signed.salt().to_vec(),
+    };
+    writeln!(out, "Address: {address}")?;
+    for mirror in signed.manifest().mirrors() {
+        writeln!(out, "Mirror: {mirror}")?;
+    }
+    Ok(())
 }
 
 /// `refs` with `packs` as its chain.

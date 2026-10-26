@@ -189,8 +189,9 @@ fn sign_status_and_trust_flow() {
     );
     let resigned = sandbox.ok(&["sign"]);
     assert!(
-        resigned.contains("#2 with 2 ref(s) and 1 pack(s)") && !resigned.contains("Added pack"),
-        "nothing new to pack, so the chain does not grow: {resigned}"
+        resigned.contains("Manifest #1 is up to date (2 ref(s), 1 pack(s))")
+            && !resigned.contains("Added pack"),
+        "nothing changed, so neither the chain nor the sequence number grows: {resigned}"
     );
 
     let status = sandbox.ok(&["status"]);
@@ -235,8 +236,14 @@ fn sign_status_and_trust_flow() {
     assert!(out.contains("/repo"), "named address: {out}");
     let out = sandbox.ok(&["sign", "--name", "repo"]);
     assert!(
+        out.contains("Manifest #1 is up to date"),
+        "signing again with nothing changed keeps the sequence number: {out}"
+    );
+    sandbox.commit("NEWS");
+    let out = sandbox.ok(&["sign", "--name", "repo"]);
+    assert!(
         out.contains("Signed manifest #2"),
-        "same key and name increments seq: {out}"
+        "a change increments it: {out}"
     );
 }
 

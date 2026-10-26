@@ -16,7 +16,8 @@ grt-core.workspace = true
 librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
 mainline = "8"
 thiserror.workspace = true
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["rt", "time"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 grt-git.workspace = true

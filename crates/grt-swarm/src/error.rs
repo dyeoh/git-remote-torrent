@@ -12,6 +12,9 @@ pub enum Error {
     /// The torrent engine failed.
     #[error("torrent: {0}")]
     Torrent(String),
+    /// An HTTP mirror failed or served the wrong bytes.
+    #[error("mirror: {0}")]
+    Mirror(String),
     /// A download did not finish in time.
     #[error("timed out fetching pack {0}")]
     Timeout(grt_core::InfoHash),

@@ -8,6 +8,7 @@
 # How-to guides
 - [Set up keys and trust](how-to/keys-and-trust.md)
 - [Mirror packs over HTTP](how-to/http-mirrors.md)
+- [Run as pure P2P](how-to/pure-p2p.md)
 
 # Reference
 - [URL syntax](reference/url-syntax.md)

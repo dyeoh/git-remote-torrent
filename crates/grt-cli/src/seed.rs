@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, bail, ensure};
-use grt_core::{InfoHash, SignedManifest};
+use grt_core::{InfoHash, RemoteUrl, SignedManifest};
 use grt_git::Repo;
 use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig};
 
@@ -16,24 +16,79 @@ use crate::{key, sign};
 pub(crate) const SEED_PID_FILE: &str = "seed.pid";
 
 pub(crate) fn run(args: &SeedArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
-    let repo = Repo::discover(cwd)?;
+    let repos = repositories(args, cwd)?;
+    if repos.len() > 1 {
+        let sign = &args.sign;
+        ensure!(
+            sign.name.is_empty()
+                && sign.mirrors.is_empty()
+                && sign.upstream.is_none()
+                && !sign.builds_on_previous(),
+            "--name, --mirror, --upstream, --update and --delete apply to one repository; \
+             set them with `git torrent sign` in each, then seed with several --repo"
+        );
+    }
     // Ask for any passphrase before the runtime and network start.
-    let key = key::signing_key()?;
+    let key = if repos.is_empty() {
+        None
+    } else {
+        Some(key::signing_key()?)
+    };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let signed = sign::sign_next(&repo, &key, &args.sign, sign::Chain::Extend, out).await?;
-        seed(&repo, &signed, args, out).await
+        let mut served = Vec::new();
+        for repo in repos {
+            let mut sign_args = args.sign.clone();
+            if args.repos.len() > 1 {
+                // Each repository keeps publishing under its own name.
+                sign_args.name = sign::load(&repo)?
+                    .map(|previous| String::from_utf8_lossy(previous.salt()).into_owned())
+                    .unwrap_or_default();
+            }
+            let key = key.as_ref().expect("loaded when there are repositories");
+            let signed = sign::sign_next(&repo, key, &sign_args, sign::Chain::Extend, out).await?;
+            served.push((repo, signed));
+        }
+        seed(served, args, out).await
     })
 }
 
-/// Seeds every pack of `signed`'s chain, publishes it, and keeps both alive
-/// until Ctrl-C. Manifests signed meanwhile (by `git push` or
-/// `git torrent sign`) are picked up, seeded and published too.
+/// The repositories to serve: each `--repo`, else the current one. With only
+/// `--republish` addresses, being outside a repository is fine.
+fn repositories(args: &SeedArgs, cwd: &Path) -> anyhow::Result<Vec<Repo>> {
+    if !args.repos.is_empty() {
+        return args
+            .repos
+            .iter()
+            .map(|path| {
+                Repo::discover(&cwd.join(path))
+                    .with_context(|| format!("{} is not a git repository", path.display()))
+            })
+            .collect();
+    }
+    match Repo::discover(cwd) {
+        Ok(repo) => Ok(vec![repo]),
+        Err(_) if !args.republish.is_empty() => Ok(Vec::new()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// One repository being seeded: its newest published manifest, and the pid
+/// file that tells `git push` a seeder will publish what it signs.
+struct Served {
+    repo: Repo,
+    current: SignedManifest,
+    _pid_file: PidFile,
+}
+
+/// Seeds every pack of each repository's chain, publishes its manifest, and
+/// keeps them alive until Ctrl-C, together with the `--republish` addresses.
+/// Manifests signed meanwhile (by `git push` or `git torrent sign`) are
+/// picked up, seeded and published too.
 async fn seed(
-    repo: &Repo,
-    signed: &SignedManifest,
+    repos: Vec<(Repo, SignedManifest)>,
     args: &SeedArgs,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
@@ -41,30 +96,43 @@ async fn seed(
     config.listen = args.listen;
     config.dht = !args.no_peer_dht;
     config.upnp = args.upnp;
-    let swarm = PackSwarm::start(&repo.git_dir().join("torrent").join("session"), config).await?;
-    let mut seeded = HashSet::new();
-    seed_chain(repo, &swarm, signed, &mut seeded).await?;
+    let session = match repos.first() {
+        Some((repo, _)) => repo.git_dir().join("torrent").join("session"),
+        None => std::env::temp_dir().join(format!("git-torrent-seed-{}", std::process::id())),
+    };
+    let swarm = PackSwarm::start(&session, config).await?;
     let listen = swarm
         .listen_addr()
         .context("the torrent session is not listening")?;
-    writeln!(
-        out,
-        "Seeding {} pack(s) on {listen}.",
-        signed.manifest().packs().len()
-    )?;
-    out.flush()?;
-
     let dht = ManifestDht::connect(&args.dht_bootstrap)?;
-    publish(&dht, signed).await?;
-    writeln!(
-        out,
-        "Published manifest #{} to the DHT. Press Ctrl-C to stop.",
-        signed.seq().get()
-    )?;
+
+    let mut seeded = HashSet::new();
+    let mut served = Vec::new();
+    for (repo, signed) in repos {
+        seed_chain(&repo, &swarm, &signed, &mut seeded).await?;
+        writeln!(
+            out,
+            "Seeding {} pack(s) of {} on {listen}.",
+            signed.manifest().packs().len(),
+            address(&signed)
+        )?;
+        publish(&dht, &signed).await?;
+        writeln!(
+            out,
+            "Published manifest #{} to the DHT.",
+            signed.seq().get()
+        )?;
+        out.flush()?;
+        served.push(Served {
+            _pid_file: PidFile::create(&repo)?,
+            repo,
+            current: signed,
+        });
+    }
+    republish_others(&dht, &args.republish, out).await?;
+    writeln!(out, "Press Ctrl-C to stop.")?;
     out.flush()?;
 
-    let pid_file = PidFile::create(repo)?;
-    let mut current = signed.clone();
     // BEP 44 items expire after about two hours unless stored again.
     let mut republish = tokio::time::interval(Duration::from_secs(args.republish_secs));
     republish.tick().await;
@@ -73,46 +141,114 @@ async fn seed(
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = republish.tick() => {
-                if let Err(error) = dht.publish(&current, None).await {
-                    writeln!(out, "warning: republishing failed: {error}")?;
-                    out.flush()?;
+                for served in &served {
+                    if let Err(error) = dht.publish(&served.current, None).await {
+                        writeln!(out, "warning: republishing {} failed: {error}", address(&served.current))?;
+                    }
                 }
+                republish_others(&dht, &args.republish, out).await?;
+                out.flush()?;
             }
             _ = watch.tick() => {
-                let Some(next) = newer_manifest(repo, &current) else {
-                    continue;
-                };
-                // Seed first, so the manifest never points at packs no one has.
-                seed_chain(repo, &swarm, &next, &mut seeded).await?;
-                match dht.publish(&next, Some(current.seq())).await {
-                    Ok(()) => writeln!(
-                        out,
-                        "Published manifest #{} ({} pack(s)).",
-                        next.seq().get(),
-                        next.manifest().packs().len()
-                    )?,
-                    // Republishing the loser would fight the other machine.
-                    Err(grt_swarm::Error::Conflict(reason)) => bail!(
-                        "manifest #{} was not published: another machine published to this \
-                         address meanwhile ({reason}). Only one machine can publish an address.",
-                        next.seq().get()
-                    ),
-                    Err(error) => writeln!(
-                        out,
-                        "warning: could not publish manifest #{}: {error}",
-                        next.seq().get()
-                    )?,
+                publish_newer(&mut served, &swarm, &dht, &mut seeded, out).await?;
+                if served.is_empty() && args.republish.is_empty() {
+                    bail!("no repository is left to serve");
                 }
-                out.flush()?;
-                // Even if publishing failed, republishing retries the newest.
-                current = next;
             }
         }
     }
-    drop(pid_file);
+    drop(served);
     swarm.stop().await;
     writeln!(out, "Stopped seeding.")?;
     Ok(())
+}
+
+/// Seeds and publishes each repository's newer manifest, if one was
+/// signed. A repository whose publish loses the compare-and-swap race is
+/// dropped from `served`.
+async fn publish_newer(
+    served: &mut Vec<Served>,
+    swarm: &PackSwarm,
+    dht: &ManifestDht,
+    seeded: &mut HashSet<InfoHash>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let mut lost = Vec::new();
+    for (index, served) in served.iter_mut().enumerate() {
+        let Some(next) = newer_manifest(&served.repo, &served.current) else {
+            continue;
+        };
+        // Seed first, so the manifest never points at packs no one has.
+        seed_chain(&served.repo, swarm, &next, seeded).await?;
+        match dht.publish(&next, Some(served.current.seq())).await {
+            Ok(()) => writeln!(
+                out,
+                "Published manifest #{} of {} ({} pack(s)).",
+                next.seq().get(),
+                address(&next),
+                next.manifest().packs().len()
+            )?,
+            // Republishing the loser would fight the other machine.
+            Err(grt_swarm::Error::Conflict(reason)) => {
+                writeln!(
+                    out,
+                    "error: manifest #{} of {} was not published: another machine \
+                     published to this address meanwhile ({reason}). Only one machine \
+                     can publish an address; no longer serving it.",
+                    next.seq().get(),
+                    address(&next)
+                )?;
+                lost.push(index);
+                continue;
+            }
+            Err(error) => writeln!(
+                out,
+                "warning: could not publish manifest #{}: {error}",
+                next.seq().get()
+            )?,
+        }
+        // Even if publishing failed, republishing retries the newest.
+        served.current = next;
+    }
+    for index in lost.into_iter().rev() {
+        served.remove(index);
+    }
+    out.flush()?;
+    Ok(())
+}
+
+/// Stores each address's current manifest again; reports addresses with
+/// nothing to republish without stopping.
+async fn republish_others(
+    dht: &ManifestDht,
+    addresses: &[RemoteUrl],
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    for address in addresses {
+        let RemoteUrl::Swarm { key, salt } = address else {
+            bail!("{address} is not a torrent://<key> address");
+        };
+        match dht.resolve(key, salt).await {
+            Ok(Some(signed)) => match dht.publish(&signed, None).await {
+                Ok(()) => writeln!(
+                    out,
+                    "Republished manifest #{} of {address}.",
+                    signed.seq().get()
+                )?,
+                Err(error) => writeln!(out, "warning: republishing {address} failed: {error}")?,
+            },
+            Ok(None) => writeln!(out, "warning: no manifest found for {address}")?,
+            Err(error) => writeln!(out, "warning: resolving {address} failed: {error}")?,
+        }
+    }
+    Ok(())
+}
+
+fn address(signed: &SignedManifest) -> RemoteUrl {
+    RemoteUrl::Swarm {
+        key: signed.public_key(),
+        salt: signed.salt().to_vec(),
+    }
 }
 
 /// How often the cached manifest is checked for one signed by `git push`.

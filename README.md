@@ -106,6 +106,9 @@ address; there is no multi-writer collaboration.
 | If the forge goes away | The swarm serves refs and packs; `reconcile` replays pushes when it returns | Nothing to lose |
 | Needs running | Nothing new | An always-on `git torrent seed` (a service, not a daemon) or a mirror |
 
+Set up the pure mode with [Run as pure P2P](docs/how-to/pure-p2p.md), which includes ready-made
+systemd and launchd service files.
+
 ## Documentation
 
 - [Tutorial: your first immortal repo](docs/tutorials/first-immortal-repo.md)

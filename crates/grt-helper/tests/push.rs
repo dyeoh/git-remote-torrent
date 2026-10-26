@@ -128,8 +128,15 @@ impl Sandbox {
 
     /// Starts `git torrent seed` on loopback and returns it with its stdout lines.
     fn seed(&self) -> (Child, Receiver<String>) {
-        let mut command = self.command("git-torrent", &self.path("source"));
+        self.seed_with(&self.path("source"), &[])
+    }
+
+    /// Starts `git torrent seed` on loopback in `cwd`, with extra `args`, on the
+    /// testnet; returns it with a stream of its stdout lines.
+    fn seed_with(&self, cwd: &Path, args: &[&str]) -> (Child, Receiver<String>) {
+        let mut command = self.command("git-torrent", cwd);
         command.args(["seed", "--listen", "127.0.0.1:0", "--no-peer-dht"]);
+        command.args(args);
         for node in &self.bootstrap {
             command.args(["--dht-bootstrap", node]);
         }
@@ -475,6 +482,116 @@ fn a_second_machine_with_the_same_key_cannot_publish() {
         &["push"],
     );
     wait_for(&lines, "Published manifest #2");
+    seeder.kill().expect("stop seeder");
+    seeder.wait().expect("reap seeder");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn one_seeder_serves_several_repositories_and_republishes_others() {
+    let sandbox = tokio::task::spawn_blocking(Sandbox::new)
+        .await
+        .expect("join");
+    let root = sandbox.dir.path().to_path_buf();
+    // Two repositories under one key, each with its own name.
+    sandbox.commit("README");
+    let address = sandbox
+        .torrent(&["key", "generate"])
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Address:")
+                .map(|rest| rest.trim().to_owned())
+        })
+        .expect("key generate prints the address");
+    sandbox.torrent(&["sign", "--name", "alpha"]);
+    sandbox.ok(&root, &["init", "-q", "beta"]);
+    let beta = sandbox.path("beta");
+    fs::write(beta.join("BETA"), "beta").expect("write file");
+    sandbox.ok(&beta, &["add", "BETA"]);
+    sandbox.ok(&beta, &["commit", "-q", "-m", "beta"]);
+    let output = sandbox
+        .command("git-torrent", &beta)
+        .args(["sign", "--name", "beta"])
+        .output()
+        .expect("sign beta");
+    check(&output, &["sign beta"]);
+
+    // A third repository someone else published; the seeder only keeps it alive.
+    let other = grt_core::PublisherKey::generate().expect("key");
+    let mut manifest = grt_core::Manifest::new();
+    manifest
+        .insert_ref(
+            "refs/heads/main".parse().expect("ref"),
+            sandbox.rev_parse("source", "HEAD").parse().expect("id"),
+        )
+        .expect("insert");
+    let signed = other
+        .sign(&manifest, grt_core::Seq::new(1), b"")
+        .expect("sign");
+    let dht =
+        grt_swarm::ManifestDht::with_bootstrap(&sandbox.bootstrap, std::net::Ipv4Addr::LOCALHOST)
+            .expect("dht");
+    dht.publish(&signed, None).await.expect("publish");
+    let other_address = format!("torrent://{}", other.public_key());
+
+    let (mut seeder, lines) = sandbox.seed_with(
+        &root,
+        &[
+            "--repo",
+            "source",
+            "--repo",
+            "beta",
+            "--republish",
+            &other_address,
+        ],
+    );
+    let peer = tokio::task::block_in_place(|| wait_for(&lines, "Seeding "))
+        .rsplit(" on ")
+        .next()
+        .expect("address")
+        .trim_end_matches('.')
+        .to_owned();
+    tokio::task::block_in_place(|| {
+        wait_for(
+            &lines,
+            &format!("Republished manifest #1 of {other_address}"),
+        );
+        wait_for(&lines, "Press Ctrl-C");
+    });
+
+    for (name, file) in [("alpha", "README"), ("beta", "BETA")] {
+        let target = format!("clone-{name}");
+        let output = tokio::task::block_in_place(|| {
+            sandbox.git_via(
+                Some(&peer),
+                &root,
+                &["clone", &format!("{address}/{name}"), &target],
+            )
+        });
+        check(&output, &["clone", name]);
+        assert!(
+            sandbox.path(&target).join(file).exists(),
+            "{name} was served by the shared seeder"
+        );
+    }
+
+    // A push to one of them is published by the same process. (Starting the
+    // seeder re-used #1, since nothing had changed since `sign`.)
+    sandbox.ok(
+        &beta,
+        &["remote", "add", "swarm", &format!("{address}/beta")],
+    );
+    sandbox.ok(&beta, &["config", "remote.swarm.torrentPublish", "true"]);
+    fs::write(beta.join("MORE"), "more").expect("write file");
+    sandbox.ok(&beta, &["add", "MORE"]);
+    sandbox.ok(&beta, &["commit", "-q", "-m", "more"]);
+    let output = tokio::task::block_in_place(|| {
+        sandbox.git_via(Some(&peer), &beta, &["push", "swarm", "main"])
+    });
+    check(&output, &["push beta"]);
+    tokio::task::block_in_place(|| {
+        wait_for(&lines, &format!("Published manifest #2 of {address}/beta"));
+    });
+
     seeder.kill().expect("stop seeder");
     seeder.wait().expect("reap seeder");
 }

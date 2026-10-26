@@ -228,3 +228,29 @@ async fn manifests_publish_resolve_and_detect_races() {
         "a publish based on seq 1 after seq 2 is a conflict, got {race:?}"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn manifests_without_a_name_use_no_salt() {
+    let testnet = tokio::task::spawn_blocking(|| Testnet::builder(10).build().expect("testnet"))
+        .await
+        .expect("join");
+    let node =
+        || ManifestDht::with_bootstrap(&testnet.bootstrap, Ipv4Addr::LOCALHOST).expect("dht node");
+    let key = PublisherKey::from_seed([6; 32]);
+    let signed = key
+        .sign(&manifest(&"dd".repeat(20)), Seq::new(1), b"")
+        .expect("sign");
+    node()
+        .publish(&signed, None)
+        .await
+        .expect("publish with an empty salt");
+    let resolved = node()
+        .resolve(&key.public_key(), b"")
+        .await
+        .expect("resolve");
+    assert_eq!(
+        resolved,
+        Some(signed),
+        "a key's only repository resolves with no salt"
+    );
+}

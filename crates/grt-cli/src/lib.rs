@@ -1,11 +1,12 @@
-//! Implementation of `git torrent`: publisher keys, the trust store and
-//! signed manifests.
+//! Implementation of `git torrent`: publisher keys, the trust store, signed
+//! manifests and seeding.
 //!
 //! This is an application crate, so it reports errors with `anyhow`. All
 //! output goes through the `out` writer handed to [`run`] so it can be tested.
 
 mod cli;
 mod key;
+mod seed;
 mod sign;
 mod status;
 mod trust;
@@ -26,6 +27,7 @@ pub fn run(cli: Cli, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         Command::Key(command) => key::run(command, out),
         Command::Trust(command) => trust::run(command, cwd, out),
         Command::Sign(args) => sign::run(&args, cwd, out),
+        Command::Seed(args) => seed::run(&args, cwd, out),
         Command::Status => status::run(cwd, out),
     }
 }

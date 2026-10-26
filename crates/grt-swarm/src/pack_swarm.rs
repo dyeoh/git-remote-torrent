@@ -71,17 +71,7 @@ impl PackSwarm {
     ///
     /// Returns [`Error::Torrent`] if hashing or seeding fails.
     pub async fn seed(&self, pack: &Path) -> Result<InfoHash, Error> {
-        let name = pack.file_name().and_then(|name| name.to_str());
-        let created = create_torrent(
-            pack,
-            CreateTorrentOptions {
-                name,
-                ..Default::default()
-            },
-            &BlockingSpawner::new(1),
-        )
-        .await
-        .map_err(torrent_error)?;
+        let created = torrent_for(pack).await?;
         let info_hash = InfoHash::from(created.info_hash().0);
         let folder = pack
             .parent()
@@ -161,6 +151,31 @@ impl PackSwarm {
     pub async fn stop(&self) {
         self.session.stop().await;
     }
+}
+
+/// Computes the BitTorrent v1 infohash a pack file would be seeded under,
+/// without starting a session. The torrent is named after the file, so the
+/// same bytes under a different file name give a different infohash.
+///
+/// # Errors
+///
+/// Returns [`Error::Torrent`] if the file cannot be read and hashed.
+pub async fn info_hash_of(pack: &Path) -> Result<InfoHash, Error> {
+    Ok(InfoHash::from(torrent_for(pack).await?.info_hash().0))
+}
+
+async fn torrent_for(pack: &Path) -> Result<librqbit::CreateTorrentResult, Error> {
+    let name = pack.file_name().and_then(|name| name.to_str());
+    create_torrent(
+        pack,
+        CreateTorrentOptions {
+            name,
+            ..Default::default()
+        },
+        &BlockingSpawner::new(1),
+    )
+    .await
+    .map_err(torrent_error)
 }
 
 /// A pack torrent holds exactly one file.

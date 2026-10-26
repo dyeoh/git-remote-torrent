@@ -28,6 +28,7 @@ pub(crate) fn run(cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         if trusted { "trusted" } else { "NOT trusted" }
     )?;
     writeln!(out, "Sequence:  {}", signed.seq().get())?;
+    writeln!(out, "Packs:     {}", manifest.packs().len())?;
     writeln!(
         out,
         "Upstream:  {}",

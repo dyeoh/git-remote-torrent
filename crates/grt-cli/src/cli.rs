@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
@@ -18,8 +19,11 @@ pub(crate) enum Command {
     /// Manage which publishers this repository trusts.
     #[command(subcommand)]
     Trust(TrustCommand),
-    /// Sign a manifest of this repository's branches and tags.
+    /// Sign a manifest of this repository's branches and tags, extending the
+    /// pack chain if they reach new objects.
     Sign(SignArgs),
+    /// Sign, publish the manifest to the DHT, and seed its packs until Ctrl-C.
+    Seed(SeedArgs),
     /// Show the signed manifest and compare it with the local refs.
     Status,
 }
@@ -82,4 +86,24 @@ pub(crate) struct SignArgs {
     /// Publish under `torrent://<key>/<name>` instead of `torrent://<key>`.
     #[arg(long, default_value = "")]
     pub(crate) name: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SeedArgs {
+    #[command(flatten)]
+    pub(crate) sign: SignArgs,
+    /// Address to accept peer connections on.
+    #[arg(long, default_value = "0.0.0.0:0")]
+    pub(crate) listen: SocketAddr,
+    /// Join a private DHT through this node instead of the public Mainline
+    /// DHT. Repeat for several nodes.
+    #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
+    pub(crate) dht_bootstrap: Vec<String>,
+    /// Don't announce packs on the BitTorrent DHT; peers must be given the
+    /// listen address.
+    #[arg(long)]
+    pub(crate) no_peer_dht: bool,
+    /// Seconds between manifest republishes.
+    #[arg(long, default_value_t = 1800, hide = true)]
+    pub(crate) republish_secs: u64,
 }

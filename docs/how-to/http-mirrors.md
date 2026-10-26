@@ -52,3 +52,13 @@ git config torrent.mirror https://cache.internal/packs
 
 Peers are tried first. When mirrors are available, the helper waits at most 30 seconds
 for peers per pack, then tries each mirror in turn.
+
+## Keep the manifest findable
+
+A mirror keeps the packs available, but cloners find the manifest through the DHT, where
+entries expire about two hours after they were last stored. Without a running seeder,
+republish on a schedule. This needs no key, so any machine can do it:
+
+```sh
+git torrent republish torrent://<key>[/<name>]
+```

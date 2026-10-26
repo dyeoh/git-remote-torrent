@@ -7,8 +7,8 @@ use std::time::Duration;
 use grt_core::InfoHash;
 use librqbit::spawn_utils::BlockingSpawner;
 use librqbit::{
-    AddTorrent, AddTorrentOptions, CreateTorrentOptions, ListenerMode, ListenerOptions, Session,
-    SessionOptions, create_torrent,
+    AddTorrent, AddTorrentOptions, CreateTorrentOptions, DhtSessionConfig, ListenerMode,
+    ListenerOptions, Session, SessionOptions, create_torrent,
 };
 
 use crate::error::Error;
@@ -19,8 +19,12 @@ use crate::error::Error;
 pub struct SwarmConfig {
     /// TCP address to accept peers on.
     pub listen: SocketAddr,
-    /// Find peers through the Mainline DHT. Off for tests and LAN-only use.
+    /// Find peers through the Mainline DHT, and on the local network
+    /// through multicast Local Service Discovery (BEP 14). Off for tests.
     pub dht: bool,
+    /// Ask the router to forward the listen port (UPnP), so peers outside a
+    /// NAT can connect. Changes the router's configuration, so off by default.
+    pub upnp: bool,
 }
 
 impl Default for SwarmConfig {
@@ -28,6 +32,7 @@ impl Default for SwarmConfig {
         SwarmConfig {
             listen: SocketAddr::from(([0, 0, 0, 0], 0)),
             dht: true,
+            upnp: false,
         }
     }
 }
@@ -46,14 +51,24 @@ impl PackSwarm {
     /// because the listen address is taken.
     pub async fn start(dir: &Path, config: SwarmConfig) -> Result<Self, Error> {
         let options = SessionOptions {
-            dht: config.dht.then(Default::default),
+            // librqbit's DHT persistence stores the bound port in one state
+            // file per user, so a second session (a clone while `seed` runs)
+            // reuses it and fails to bind. Without it, each session picks a
+            // free port and leaves no global state behind.
+            dht: config.dht.then(|| DhtSessionConfig {
+                persistence: None,
+                ..Default::default()
+            }),
             disable_trackers: true,
-            disable_local_service_discovery: true,
+            // Peers found on the DHT are listed under their public address,
+            // which machines behind the same NAT often cannot connect back to.
+            disable_local_service_discovery: !config.dht,
             fastresume: false,
             persistence: None,
             listen: Some(ListenerOptions {
                 mode: ListenerMode::TcpOnly,
                 listen_addr: config.listen,
+                enable_upnp_port_forwarding: config.upnp,
                 ..Default::default()
             }),
             ..Default::default()

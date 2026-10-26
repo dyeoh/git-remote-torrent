@@ -15,6 +15,7 @@ signed with the publisher's Ed25519 key. It is implemented in `grt-core`
 | `packs2` | bytes | no | Concatenated 32-byte BitTorrent v2 infohashes of the **same** packs, in the same order. Reserved for v2-capable clients; current writers leave it out. See [ADR-0006](../adr/0006-bittorrent-v1-and-bep44-value-layout.md). |
 | `head` | bytes | no | The ref `HEAD` points to. It must be a key of `refs`. |
 | `up` | bytes (UTF-8) | no | The canonical upstream URL. |
+| `ws` | list of bytes (UTF-8) | no | Base URLs of HTTP mirrors serving each pack as `<base>/<infohash>.pack`. See [ADR-0007](../adr/0007-http-mirrors-instead-of-bep19.md). |
 
 Keys are short because the encoded value, including its byte-string length prefix (see
 [Signature](#signature)), must fit in **1000 bytes**, the BEP 44 limit. That allows
@@ -34,6 +35,8 @@ Every manifest comes from an untrusted peer. Readers reject it when:
 - `packs2` is present but isn't a multiple of 32 bytes, or doesn't have one entry per
   pack in `packs`
 - `head` names a ref that isn't in `refs`
+- a `ws` entry isn't an `http://` or `https://` URL, is longer than 200 bytes, or
+  contains whitespace
 
 Readers **ignore unknown keys**, so later minor versions can add fields without breaking
 older clients.

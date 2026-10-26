@@ -12,11 +12,16 @@ readme = "README.md"
 [dependencies]
 anyhow.workspace = true
 grt-core.workspace = true
+grt-git.workspace = true
+grt-swarm.workspace = true
 grt-upstream.workspace = true
 thiserror.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 
 [dev-dependencies]
+mainline = "8"
 tempfile.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

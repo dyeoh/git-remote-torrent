@@ -5,8 +5,8 @@ central host goes away. Any HTTPS/SSH remote (GitHub, a self-hosted forge, a bar
 upstream. Every push is also signed with Ed25519 and seeded to a BitTorrent swarm, so a
 takedown, outage or revoked account doesn't take the code with it.
 
-> **Status: pre-alpha (0.x).** `torrent::<url>` remotes work, but they pass everything
-> through to the upstream for now; the swarm arrives in 0.2. See the
+> **Status: pre-alpha (0.x).** `torrent::<url>` remotes work against any upstream, and
+> clones and fetches from the swarm are landing for 0.2. See the
 > [roadmap](docs/explanation/roadmap.md). While the version is 0.y.z, any minor release
 > may contain breaking changes.
 

@@ -102,6 +102,21 @@ impl Repo {
     }
 }
 
+/// Reads every value of a multi-valued key from the config git would use in
+/// the current environment: the repository in `GIT_DIR` or the working
+/// directory, if any, plus `git -c` overrides.
+///
+/// # Errors
+///
+/// Returns an error if git cannot be run or the config is invalid.
+pub fn config_all(key: &str) -> Result<Vec<String>, Error> {
+    let mut command = Command::new("git");
+    command.args(["config", "--get-all", key]);
+    Ok(config_get(command)?
+        .map(|values| values.lines().map(str::to_owned).collect())
+        .unwrap_or_default())
+}
+
 /// Reads a value from the user's global git config.
 ///
 /// # Errors

@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use grt_core::{PublicKey, Seq, SignedManifest};
 use mainline::async_dht::AsyncDht;
@@ -41,6 +41,29 @@ impl ManifestDht {
         Ok(ManifestDht {
             dht: dht.as_async(),
         })
+    }
+
+    /// Joins the public DHT if `bootstrap` is empty, and otherwise the
+    /// private DHT those nodes belong to. A network of loopback nodes gets a
+    /// loopback socket, since it cannot reach any other address.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Dht`] if the UDP socket cannot be opened.
+    pub fn connect(bootstrap: &[String]) -> Result<Self, Error> {
+        if bootstrap.is_empty() {
+            return ManifestDht::public();
+        }
+        let all_loopback = bootstrap.iter().all(|node| {
+            node.parse::<SocketAddr>()
+                .is_ok_and(|addr| addr.ip().is_loopback())
+        });
+        let bind = if all_loopback {
+            Ipv4Addr::LOCALHOST
+        } else {
+            Ipv4Addr::UNSPECIFIED
+        };
+        ManifestDht::with_bootstrap(bootstrap, bind)
     }
 
     /// Stores `signed` on the DHT.

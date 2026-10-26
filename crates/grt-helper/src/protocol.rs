@@ -1,8 +1,9 @@
 use std::io::{BufRead, Lines, Write};
 
-use grt_upstream::{PushSpec, PushStatus, RefValue, TransferOptions, Upstream};
+use grt_upstream::{PushSpec, PushStatus, RefValue, TransferOptions};
 
 use crate::error::Error;
+use crate::remote::{FetchRef, Remote};
 
 const CAPABILITIES: &str = "fetch\npush\noption\n";
 
@@ -12,10 +13,10 @@ const CAPABILITIES: &str = "fetch\npush\noption\n";
 /// # Errors
 ///
 /// Returns an error if I/O fails, git sends an unknown or malformed command,
-/// or the upstream fails. Git reports the helper's non-zero exit to the user.
-pub fn run<U, R, W>(upstream: &U, input: R, mut output: W) -> Result<(), Error>
+/// or the remote fails. Git reports the helper's non-zero exit to the user.
+pub fn run<M, R, W>(remote: &mut M, input: R, mut output: W) -> Result<(), Error>
 where
-    U: Upstream,
+    M: Remote,
     R: BufRead,
     W: Write,
 {
@@ -29,8 +30,8 @@ where
             "capabilities" => writeln!(output, "{CAPABILITIES}")?,
             "option" => writeln!(output, "{}", set_option(&mut options, argument))?,
             "list" => {
-                // `list for-push` gets the same answer: the upstream's refs.
-                for listed in upstream.list(&options)? {
+                // `list for-push` gets the same answer.
+                for listed in remote.list(&options)? {
                     match listed.value {
                         RefValue::Object(id) => writeln!(output, "{id} {}", listed.name)?,
                         RefValue::Symbolic(target) => {
@@ -43,9 +44,9 @@ where
             "fetch" => {
                 let refs = read_batch(&mut lines, argument, "fetch")?
                     .iter()
-                    .map(|argument| fetch_ref_name(argument))
-                    .collect::<Result<Vec<String>, Error>>()?;
-                upstream.fetch(&refs, &options)?;
+                    .map(|argument| parse_fetch(argument))
+                    .collect::<Result<Vec<FetchRef>, Error>>()?;
+                remote.fetch(&refs, &options)?;
                 writeln!(output)?;
             }
             "push" => {
@@ -53,7 +54,7 @@ where
                     .iter()
                     .map(|argument| argument.parse())
                     .collect::<Result<Vec<PushSpec>, grt_upstream::Error>>()?;
-                for result in upstream.push(&specs, &options)? {
+                for result in remote.push(&specs, &options)? {
                     match result.status {
                         PushStatus::Ok => writeln!(output, "ok {}", result.dst)?,
                         PushStatus::Rejected(reason) => {
@@ -95,13 +96,18 @@ fn read_batch<R: BufRead>(
     Err(Error::Protocol(format!("`{keyword}` batch not terminated")))
 }
 
-/// Extracts the ref name from a `fetch <oid> <name>` argument.
-fn fetch_ref_name(argument: &str) -> Result<String, Error> {
-    match argument.split_once(' ') {
-        // The name is passed to `git fetch`; only accept real ref names.
-        Some((_, name)) if name == "HEAD" || name.starts_with("refs/") => Ok(name.to_owned()),
-        _ => Err(Error::Protocol(format!("malformed fetch {argument:?}"))),
+/// Parses a `fetch <oid> <name>` argument.
+fn parse_fetch(argument: &str) -> Result<FetchRef, Error> {
+    let malformed = || Error::Protocol(format!("malformed fetch {argument:?}"));
+    let (id, name) = argument.split_once(' ').ok_or_else(malformed)?;
+    // The name is passed to `git fetch`; only accept real ref names.
+    if name != "HEAD" && !name.starts_with("refs/") {
+        return Err(malformed());
     }
+    Ok(FetchRef {
+        id: id.parse().map_err(|_| malformed())?,
+        name: name.to_owned(),
+    })
 }
 
 /// Applies `option <name> <value>` and returns the reply line.
@@ -139,13 +145,13 @@ mod tests {
 
     /// Records every call and answers from canned data.
     #[derive(Default)]
-    struct FakeUpstream {
+    struct FakeRemote {
         calls: RefCell<Vec<String>>,
         reject: Option<&'static str>,
     }
 
-    impl Upstream for FakeUpstream {
-        fn list(&self, _options: &TransferOptions) -> Result<Vec<ListedRef>, grt_upstream::Error> {
+    impl Remote for FakeRemote {
+        fn list(&mut self, _options: &TransferOptions) -> Result<Vec<ListedRef>, Error> {
             self.calls.borrow_mut().push("list".to_owned());
             Ok(vec![
                 ListedRef::symbolic("HEAD", "refs/heads/main"),
@@ -153,22 +159,19 @@ mod tests {
             ])
         }
 
-        fn fetch(
-            &self,
-            refs: &[String],
-            options: &TransferOptions,
-        ) -> Result<(), grt_upstream::Error> {
+        fn fetch(&mut self, refs: &[FetchRef], options: &TransferOptions) -> Result<(), Error> {
+            let names: Vec<&str> = refs.iter().map(|wanted| wanted.name.as_str()).collect();
             self.calls
                 .borrow_mut()
-                .push(format!("fetch {refs:?} {options:?}"));
+                .push(format!("fetch {names:?} {options:?}"));
             Ok(())
         }
 
         fn push(
-            &self,
+            &mut self,
             specs: &[PushSpec],
             _options: &TransferOptions,
-        ) -> Result<Vec<PushResult>, grt_upstream::Error> {
+        ) -> Result<Vec<PushResult>, Error> {
             self.calls.borrow_mut().push(format!("push {specs:?}"));
             Ok(specs
                 .iter()
@@ -185,17 +188,17 @@ mod tests {
         }
     }
 
-    fn transcript(upstream: &FakeUpstream, input: &str) -> String {
+    fn transcript(remote: &mut FakeRemote, input: &str) -> String {
         let mut output = Vec::new();
-        run(upstream, input.as_bytes(), &mut output).unwrap();
+        run(remote, input.as_bytes(), &mut output).unwrap();
         String::from_utf8(output).unwrap()
     }
 
     #[test]
     fn clone_session() {
-        let upstream = FakeUpstream::default();
+        let mut remote = FakeRemote::default();
         let output = transcript(
-            &upstream,
+            &mut remote,
             &format!(
                 "capabilities\noption progress true\noption depth 1\nlist\n\
                  fetch {A} HEAD\nfetch {A} refs/heads/main\n\n\n"
@@ -209,7 +212,7 @@ mod tests {
             "capabilities, option replies, ref list and fetch terminator"
         );
         assert_eq!(
-            *upstream.calls.borrow(),
+            *remote.calls.borrow(),
             vec![
                 "list".to_owned(),
                 r#"fetch ["HEAD", "refs/heads/main"] TransferOptions { verbosity: 1, progress: Some(true) }"#.to_owned(),
@@ -220,12 +223,12 @@ mod tests {
 
     #[test]
     fn push_session_reports_each_ref() {
-        let upstream = FakeUpstream {
+        let mut remote = FakeRemote {
             reject: Some("refs/heads/old"),
-            ..FakeUpstream::default()
+            ..FakeRemote::default()
         };
         let output = transcript(
-            &upstream,
+            &mut remote,
             "list for-push\npush refs/heads/main:refs/heads/main\npush +refs/heads/x:refs/heads/old\n\n",
         );
         assert_eq!(
@@ -241,7 +244,7 @@ mod tests {
     #[test]
     fn eof_ends_session_cleanly() {
         assert_eq!(
-            transcript(&FakeUpstream::default(), "capabilities\n"),
+            transcript(&mut FakeRemote::default(), "capabilities\n"),
             "fetch\npush\noption\n\n"
         );
     }
@@ -251,13 +254,14 @@ mod tests {
         for input in [
             "frobnicate\n",
             &format!("fetch {A} --upload-pack=evil\n\n"),
+            "fetch not-an-id refs/heads/main\n\n",
             &format!("fetch {A} refs/heads/main\nlist\n"),
             &format!("fetch {A} refs/heads/main\n"),
             "push --mirror:refs/heads/x\n\n",
         ] {
             let mut output = Vec::new();
             assert!(
-                run(&FakeUpstream::default(), input.as_bytes(), &mut output).is_err(),
+                run(&mut FakeRemote::default(), input.as_bytes(), &mut output).is_err(),
                 "{input:?} must end the session with an error"
             );
         }

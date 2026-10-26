@@ -56,5 +56,5 @@ or for one command with `git -c`.
 
 | Mode | `clone` / `fetch` | `push` |
 |------|-------------------|--------|
-| Hybrid | Refs from the upstream, objects from the swarm when the manifest covers them; the swarm serves both when the upstream is gone | To the upstream; with `torrentPublish`, what the upstream accepts is also signed into the manifest |
+| Hybrid | Refs from the upstream, objects from the swarm when the manifest covers them; the swarm serves both when the upstream is gone | To the upstream; with `torrentPublish`, what the upstream accepts is also signed into the manifest. If the upstream is unreachable, to the swarm only, until `git torrent reconcile` |
 | Pure P2P | From the swarm | With `torrentPublish`, signed into the manifest. Non-fast-forward updates need a force push |

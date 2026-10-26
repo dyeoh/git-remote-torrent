@@ -40,4 +40,12 @@ pub trait Swarm {
         specs: &[PushSpec],
         fast_forward_only: bool,
     ) -> Result<Vec<PushResult>, Error>;
+
+    /// Remembers that `refs` were pushed to the swarm while the upstream was
+    /// unreachable, for `git torrent reconcile` to replay.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the record cannot be written.
+    fn record_unsynced(&mut self, refs: &[String]) -> Result<(), Error>;
 }

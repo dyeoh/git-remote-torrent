@@ -27,7 +27,8 @@ fn main() -> anyhow::Result<()> {
             let swarm = match torrent_address(name)? {
                 Some((key, salt)) => Some(
                     DhtSwarm::new(repo, key, &salt, Settings::from_config()?)?
-                        .publishing(publishes(name)?),
+                        .publishing(publishes(name)?)
+                        .for_remote(name),
                 ),
                 None => None,
             };
@@ -36,7 +37,8 @@ fn main() -> anyhow::Result<()> {
         }
         RemoteUrl::Swarm { key, salt } => {
             let swarm = DhtSwarm::new(repo, *key, salt, Settings::from_config()?)?
-                .publishing(publishes(name)?);
+                .publishing(publishes(name)?)
+                .for_remote(name);
             let mut router: Router<GitUpstream, DhtSwarm> = Router::swarm(swarm);
             grt_helper::run(&mut router, stdin, stdout)
         }

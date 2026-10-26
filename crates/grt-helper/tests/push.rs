@@ -413,3 +413,68 @@ fn push_while_the_upstream_is_down_and_reconcile_later() {
         "the rejected ref stays pending until it is resolved"
     );
 }
+
+#[test]
+fn a_second_machine_with_the_same_key_cannot_publish() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    // One key file, two repositories: the key was copied to another machine.
+    let address = sandbox
+        .torrent(&["key", "generate"])
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Address:")
+                .map(|rest| rest.trim().to_owned())
+        })
+        .expect("key generate prints the address");
+    let (mut seeder, lines) = sandbox.seed();
+    let peer = wait_for(&lines, "Seeding ")
+        .rsplit(" on ")
+        .next()
+        .expect("address")
+        .trim_end_matches('.')
+        .to_owned();
+    wait_for(&lines, "Published manifest #1");
+
+    check(
+        &sandbox.git_via(
+            Some(&peer),
+            sandbox.dir.path(),
+            &[
+                "clone",
+                "-c",
+                "remote.origin.torrentPublish=true",
+                &address,
+                "second",
+            ],
+        ),
+        &["clone"],
+    );
+    let second = sandbox.path("second");
+    fs::write(second.join("ELSEWHERE"), "x").expect("write file");
+    sandbox.ok(&second, &["add", "ELSEWHERE"]);
+    sandbox.ok(&second, &["commit", "-q", "-m", "elsewhere"]);
+    let output = sandbox.git_via(Some(&peer), &second, &["push", "origin", "main"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("signed on another machine"),
+        "the second machine is refused before signing anything:\n{stderr}"
+    );
+    assert!(
+        !second.join(".git/torrent/manifest").exists(),
+        "nothing was signed on the second machine"
+    );
+
+    // The publisher itself is unaffected.
+    let source = sandbox.path("source");
+    sandbox.ok(&source, &["remote", "add", "swarm", &address]);
+    sandbox.ok(&source, &["config", "remote.swarm.torrentPublish", "true"]);
+    sandbox.commit("MORE");
+    check(
+        &sandbox.git_via(Some(&peer), &source, &["push", "swarm", "main"]),
+        &["push"],
+    );
+    wait_for(&lines, "Published manifest #2");
+    seeder.kill().expect("stop seeder");
+    seeder.wait().expect("reap seeder");
+}

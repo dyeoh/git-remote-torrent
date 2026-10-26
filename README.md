@@ -1,9 +1,11 @@
 # git-remote-torrent
 
-**Immortal code.** A Git remote helper that keeps repositories cloneable when the
-central host goes away. Any HTTPS/SSH remote (GitHub, a self-hosted forge, a bare server) stays your canonical
-upstream. Every push is also signed with Ed25519 and seeded to a BitTorrent swarm, so a
-takedown, outage or revoked account doesn't take the code with it.
+**A companion for your forge.** A Git remote helper that keeps repositories cloneable when
+the central host goes away. Any HTTPS/SSH remote (GitHub, a self-hosted forge, a bare
+server) stays your canonical upstream. Each push is also published as an Ed25519-signed
+manifest on the BitTorrent DHT, with its packs served by peers and by any static mirror and
+verified with SHA-256. A takedown, outage or revoked account then doesn't take the code
+with it, as long as someone keeps a mirror or a seeder.
 
 > **Status: pre-alpha (0.x).** Clones and fetches work from the swarm, including after
 > the upstream is gone. Pushes can publish to the swarm, even while the upstream is down,
@@ -38,14 +40,14 @@ git-remote-torrent doesn't replace your forge. The forge keeps its role as the c
 upstream for pull requests, CI, permissions and the web UI. The swarm sits beside it and
 takes over the jobs a single server handles worst:
 
-- **Lower egress costs.** Clones and fetches come from peers first, and the host only
-  covers what the swarm can't. A team on one office network shares objects over the LAN
-  (mDNS), so big repos and fresh CI runners stop pulling the same packfiles across the
-  internet again and again.
+- **Lower egress costs.** Clones and fetches come from peers and mirrors first, and the
+  host only covers what they can't. Peers on the same network find each other
+  automatically.
 - **Absorbing demand spikes.** A trending repository or a big release gets faster as more
   people clone it, because every downloader becomes a seed. Today those spikes hit the host
   hardest.
-- **Off-site redundancy for free.** Every seeder holds a verified replica. If the host has
+- **Verifiable off-site copies.** Every seeder and mirror holds a replica that clients
+  verify against the signed manifest. If the host has
   an outage, a region goes down or a storage incident happens, developers keep fetching
   and the history can be restored from the swarm.
 - **The host as just one more seed.** A forge can serve packs over plain HTTP as a
@@ -57,6 +59,14 @@ takes over the jobs a single server handles worst:
 - **Adoption without migration.** Developers' commands stay the same:
   `git clone torrent::https://…` is an opt-in prefix. A host can offer it to the users who
   want it, and their workflow doesn't change.
+
+## How it compares
+
+[GitTorrent](https://github.com/cjb/GitTorrent) tried git over BitTorrent in 2015;
+[Radicle](https://radicle.dev) is the active peer-to-peer forge; Software Heritage archives
+public code. This project stays a small companion to the forge you already use.
+[Prior art](docs/explanation/prior-art.md) explains what it adds and what it leaves to
+those projects.
 
 ## Documentation
 

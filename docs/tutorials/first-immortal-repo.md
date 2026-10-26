@@ -137,6 +137,6 @@ their infohash.
   This stores the same signed manifest again, after checking its signature. Once a
   manifest has expired everywhere, only its publisher can publish it again. Existing
   clones keep their last verified copy and can still fetch from peers and mirrors.
-- **Not there yet:** helping seed someone else's repository's *packs* (running `seed` in
-  a clone publishes under *your* key, as a different repository). The background daemon
-  in the [roadmap](../explanation/roadmap.md) covers that.
+- **Not supported:** seeding someone else's repository's *packs* (running `seed` in a clone
+  publishes under *your* key, as a different repository). Mirror their packs instead, or
+  use a peer-to-peer forge such as Radicle; see [prior art](../explanation/prior-art.md).

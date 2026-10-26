@@ -16,6 +16,7 @@
 
 # Explanation
 - [Architecture](explanation/architecture.md)
+- [Prior art](explanation/prior-art.md)
 - [Roadmap](explanation/roadmap.md)
 - [Threat model](explanation/threat-model.md)
 

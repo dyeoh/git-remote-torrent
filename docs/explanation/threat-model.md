@@ -65,7 +65,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 |---|---|---|
 | H1 | Key compromise is permanent | Open: design ADR planned |
 | H2 | The trust store is not consulted when fetching | Open |
-| M1 | Manifest mirrors make cloners send requests to any host | Open |
+| M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
 | M2 | A plain `sign` publishes every local branch and tag | Open |
 | M3 | Fresh clones can be served a stale manifest | Open |
 | M4 | Generated keys are unencrypted; secrets stay in memory | Open |
@@ -108,10 +108,15 @@ services. Redirects are followed, and plain `http://` mirrors show the network w
 repositories you fetch. Responses are hash-checked, so the attacker can't inject content;
 this is a blind probe and a side channel.
 
-**Fix:** for mirrors named by the manifest, resolve each connection, redirects included,
-through a resolver that refuses loopback, private, link-local, unique-local and
-unspecified addresses. Mirrors you configure yourself (`torrent.mirror`, `--mirror`) stay
-unrestricted.
+**Fixed:** mirrors named by a manifest connect through a resolver that keeps only public
+addresses. It refuses loopback, private, link-local, carrier-grade NAT, unique-local,
+multicast, unspecified and other special-purpose addresses, including IPv4 embedded in IPv6.
+ureq resolves again for every connection, so redirects are checked too. Mirrors you
+configure yourself (`torrent.mirror`, or `--mirror` for `adopt`) and the mirrors of your
+own manifest (`adopt`, `verify-mirror`) are unrestricted. `torrent.allowPrivateMirrors=true`
+lifts the restriction for a repository whose manifest names an internal mirror. Fetches
+through a configured HTTP proxy are resolved by the proxy, which has to enforce its own
+policy. Plain `http://` mirrors still show the network which packs you fetch.
 
 ### M2. A plain `sign` publishes every local branch and tag
 

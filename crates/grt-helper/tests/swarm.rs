@@ -428,10 +428,34 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
     fs::rename(&upstream, sandbox.path("taken-down.git")).expect("take the upstream down");
 
     let address = format!("remote.origin.torrentAddress={}", publisher.address());
+    let upstream = format!("torrent::{url}");
+
+    // The manifest's mirror is on loopback, which a publisher may not make
+    // cloners connect to.
+    let output = sandbox.swarm_git(
+        &publisher,
+        sandbox.dir.path(),
+        &["clone", "-c", &address, &upstream, "clone"],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("is not a public address"),
+        "a manifest mirror on loopback is refused:\n{stderr}"
+    );
+
+    // The user can allow it, or name the mirror themselves.
     let stderr = sandbox.swarm_ok(
         &publisher,
         sandbox.dir.path(),
-        &["clone", "-c", &address, &format!("torrent::{url}"), "clone"],
+        &[
+            "clone",
+            "-c",
+            &address,
+            "-c",
+            "torrent.allowPrivateMirrors=true",
+            &upstream,
+            "clone",
+        ],
     );
     assert!(
         stderr.contains("the upstream is unavailable")
@@ -440,6 +464,20 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
         "the pack came from the mirror the manifest lists:\n{stderr}"
     );
     assert_eq!(clone_head(&sandbox), first, "cloned from the mirror");
+    let mirror = format!("torrent.mirror={base}/packs");
+    sandbox.swarm_ok(
+        &publisher,
+        sandbox.dir.path(),
+        &[
+            "clone",
+            "-c",
+            &address,
+            "-c",
+            &mirror,
+            &upstream,
+            "by-config",
+        ],
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

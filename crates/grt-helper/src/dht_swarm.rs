@@ -9,7 +9,9 @@ use std::{fs, io};
 
 use grt_core::{Manifest, ObjectId, PublicKey, RefName, SignedManifest};
 use grt_git::Repo;
-use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack};
+use grt_swarm::{
+    ManifestDht, MirrorSource, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack,
+};
 use grt_upstream::{PushResult, PushSpec, PushStatus};
 
 use crate::error::Error;
@@ -42,6 +44,9 @@ pub struct Settings {
     /// HTTP mirrors to try after peers, besides those the manifest lists
     /// (`torrent.mirror`).
     pub mirrors: Vec<String>,
+    /// Let the manifest's mirrors reach loopback and private addresses
+    /// (`torrent.allowPrivateMirrors`, default false).
+    pub allow_private_mirrors: bool,
     /// Deadline for resolving the manifest and for each pack
     /// (`torrent.fetchTimeout`, in seconds, default 120).
     pub timeout: Duration,
@@ -61,17 +66,8 @@ impl Settings {
                     .map_err(|_| invalid_config("torrent.peer", peer, "expected host:port"))
             })
             .collect::<Result<Vec<SocketAddr>, Error>>()?;
-        let peer_dht = match last("torrent.peerDht")?.as_deref() {
-            None | Some("true" | "yes" | "on" | "1") => true,
-            Some("false" | "no" | "off" | "0") => false,
-            Some(other) => {
-                return Err(invalid_config(
-                    "torrent.peerDht",
-                    other,
-                    "expected a boolean",
-                ));
-            }
-        };
+        let peer_dht = boolean("torrent.peerDht", true)?;
+        let allow_private_mirrors = boolean("torrent.allowPrivateMirrors", false)?;
         let timeout =
             match last("torrent.fetchTimeout")? {
                 None => Duration::from_secs(120),
@@ -94,6 +90,7 @@ impl Settings {
             peers,
             peer_dht,
             mirrors,
+            allow_private_mirrors,
             timeout,
         })
     }
@@ -179,10 +176,30 @@ impl DhtSwarm {
 
     /// Downloads and indexes every pack of the chain not applied before,
     /// from peers first and then from HTTP mirrors.
+    /// The manifest's mirrors, then the user's, with who chose each.
+    fn mirrors<'a>(&'a self, manifest: &'a Manifest) -> Vec<(&'a str, MirrorSource)> {
+        let from_manifest = if self.settings.allow_private_mirrors {
+            MirrorSource::User
+        } else {
+            MirrorSource::Manifest
+        };
+        let mut mirrors: Vec<(&str, MirrorSource)> = manifest
+            .mirrors()
+            .iter()
+            .map(|mirror| (mirror.as_str(), from_manifest))
+            .collect();
+        mirrors.extend(
+            self.settings
+                .mirrors
+                .iter()
+                .map(|mirror| (mirror.as_str(), MirrorSource::User)),
+        );
+        mirrors
+    }
+
     async fn apply_chain(&self, repo: &Repo, manifest: &Manifest) -> Result<Fetched, Error> {
         let torrent_dir = repo.git_dir().join("torrent");
-        let mut mirrors: Vec<&str> = manifest.mirrors().iter().map(String::as_str).collect();
-        mirrors.extend(self.settings.mirrors.iter().map(String::as_str));
+        let mirrors = self.mirrors(manifest);
         // Without peers to ask, go straight to the mirrors.
         let swarm = if self.settings.peers.is_empty() && !self.settings.peer_dht {
             None
@@ -228,12 +245,19 @@ impl DhtSwarm {
                         Err(error) => failures.push(format!("peers: {error}")),
                     }
                 }
-                for mirror in &mirrors {
+                for &(mirror, source) in &mirrors {
                     if file.is_some() {
                         break;
                     }
-                    match fetch_from_mirror(mirror, pack, sha256, &incoming, self.settings.timeout)
-                        .await
+                    match fetch_from_mirror(
+                        mirror,
+                        source,
+                        pack,
+                        sha256,
+                        &incoming,
+                        self.settings.timeout,
+                    )
+                    .await
                     {
                         Ok(path) => {
                             fetched.from_mirrors += 1;
@@ -522,6 +546,16 @@ impl Swarm for DhtSwarm {
 
 fn last(key: &str) -> Result<Option<String>, Error> {
     Ok(grt_git::config_all(key)?.pop())
+}
+
+/// A boolean setting, `default` when unset.
+fn boolean(key: &str, default: bool) -> Result<bool, Error> {
+    match last(key)?.as_deref() {
+        None => Ok(default),
+        Some("true" | "yes" | "on" | "1") => Ok(true),
+        Some("false" | "no" | "off" | "0") => Ok(false),
+        Some(other) => Err(invalid_config(key, other, "expected a boolean")),
+    }
 }
 
 fn invalid_config(key: &str, value: &str, expected: &str) -> Error {

@@ -68,6 +68,13 @@ git config torrent.mirror https://cache.internal/packs
 Peers are tried first. When mirrors are available, the helper waits at most 30 seconds
 for peers per pack, then tries each mirror in turn.
 
+Mirrors listed in a manifest were chosen by its publisher, so they may only connect to
+public addresses, redirects included. A manifest can't make your machine send requests to
+`localhost`, your LAN or a cloud metadata service. Mirrors you configure yourself
+(`torrent.mirror`) can be anywhere. To let a manifest's mirrors reach private addresses,
+for example an internal mirror signed into a company repository, set
+`torrent.allowPrivateMirrors=true`.
+
 ## Keep the manifest findable
 
 A mirror keeps the packs available, but cloners find the manifest through the DHT, where

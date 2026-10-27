@@ -200,6 +200,10 @@ fn sign_status_and_trust_flow() {
         "own key is not trusted by default: {status}"
     );
     assert!(
+        status.contains("Signed:    just now"),
+        "the time of signing is recorded: {status}"
+    );
+    assert!(
         status.contains("Upstream:  https://example.com/org/repo.git"),
         "torrent:: is unwrapped: {status}"
     );

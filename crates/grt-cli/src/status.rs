@@ -28,6 +28,14 @@ pub(crate) fn run(cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
         if trusted { "trusted" } else { "NOT trusted" }
     )?;
     writeln!(out, "Sequence:  {}", signed.seq().get())?;
+    writeln!(
+        out,
+        "Signed:    {}",
+        match manifest.signed_at() {
+            Some(signed_at) => grt_core::describe_age(signed_at, sign::unix_now()?),
+            None => "(no time recorded; signed before 0.4)".to_owned(),
+        }
+    )?;
     writeln!(out, "Packs:     {}", manifest.packs().len())?;
     writeln!(
         out,

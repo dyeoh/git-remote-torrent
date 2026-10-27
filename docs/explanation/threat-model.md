@@ -67,7 +67,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 | H2 | The trust store is not consulted when fetching | Fixed in 0.4 |
 | M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
 | M2 | A plain `sign` publishes every local branch and tag | Fixed in 0.4 |
-| M3 | Fresh clones can be served a stale manifest | Open |
+| M3 | Fresh clones can be served a stale manifest | Mitigated in 0.4 |
 | M4 | Generated keys are unencrypted; secrets stay in memory | Fixed in 0.4 |
 | L1 | Pack size from peers is not capped | Open |
 | L2 | Privacy: IPs, interests and LAN multicast | Open: documented below |
@@ -142,9 +142,15 @@ store it again once the newer one has expired (`republish --manifest`). Existing
 are protected by their cached manifest. A fresh clone is not, and the manifest has no time
 to judge freshness by.
 
-**Fix:** an optional signed timestamp `t` in manifest format 1. The helper shows a
-manifest's age when it serves refs, and warns when the upstream is unavailable and the
-manifest is more than 30 days old.
+**Mitigated:** manifests carry a signed time of signing, `t` (an optional field of format
+1, so older clients ignore it and older manifests still verify). Whenever refs come from
+a manifest, the helper prints its age. When the upstream is unavailable and the manifest
+is more than 30 days old, it warns that a newer one may exist. `git torrent status` shows
+the time as well.
+
+This narrows the attack rather than closing it: an attacker can still serve a manifest
+from last week, and a repository that is simply quiet looks the same as a stale one. Only
+reaching an honest node, or the upstream, gives the newest manifest.
 
 ### M4. Generated keys are unencrypted, and secrets stay in memory
 

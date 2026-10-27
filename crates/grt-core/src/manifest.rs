@@ -20,6 +20,24 @@ const KEY_PACKS: &[u8] = b"packs";
 const KEY_PACKS_V2: &[u8] = b"packs2";
 const KEY_UPSTREAM: &[u8] = b"up";
 const KEY_MIRRORS: &[u8] = b"ws";
+const KEY_SIGNED_AT: &[u8] = b"t";
+
+/// Says how long ago `signed_at` was, at `now` (both in seconds since the
+/// Unix epoch): "3 hours ago", "12 days ago", or "in the future" when the
+/// signer's clock was ahead.
+pub fn describe_age(signed_at: u64, now: u64) -> String {
+    let Some(age) = now.checked_sub(signed_at) else {
+        return "in the future".to_owned();
+    };
+    let (count, unit) = match age {
+        0..60 => return "just now".to_owned(),
+        60..3_600 => (age / 60, "minute"),
+        3_600..86_400 => (age / 3_600, "hour"),
+        _ => (age / 86_400, "day"),
+    };
+    let plural = if count == 1 { "" } else { "s" };
+    format!("{count} {unit}{plural} ago")
+}
 
 /// Longest mirror base URL accepted, in bytes.
 pub const MAX_MIRROR_LEN: usize = 200;
@@ -37,6 +55,7 @@ pub const MAX_MIRROR_LEN: usize = 200;
 /// | `head` | optional ref name that `HEAD` points to |
 /// | `up` | optional canonical upstream URL |
 /// | `ws` | optional list of HTTP mirror base URLs serving `<infohash>.pack` |
+/// | `t` | optional time of signing, in seconds since the Unix epoch |
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Manifest {
     head: Option<RefName>,
@@ -45,6 +64,7 @@ pub struct Manifest {
     packs_v2: Option<Vec<InfoHashV2>>,
     upstream: Option<String>,
     mirrors: Vec<String>,
+    signed_at: Option<u64>,
 }
 
 impl Manifest {
@@ -170,6 +190,17 @@ impl Manifest {
         Ok(())
     }
 
+    /// When the publisher signed the manifest, in seconds since the Unix
+    /// epoch, by their clock. Manifests signed before 0.4 have no time.
+    pub fn signed_at(&self) -> Option<u64> {
+        self.signed_at
+    }
+
+    /// Sets the time of signing, in seconds since the Unix epoch.
+    pub fn set_signed_at(&mut self, signed_at: Option<u64>) {
+        self.signed_at = signed_at;
+    }
+
     /// Encodes the manifest as canonical bencode.
     pub fn encode(&self) -> Vec<u8> {
         let refs = self
@@ -220,6 +251,11 @@ impl Manifest {
                 .map(|mirror| Value::Bytes(mirror.as_bytes().to_vec()))
                 .collect();
             dict.insert(KEY_MIRRORS.to_vec(), Value::List(mirrors));
+        }
+        if let Some(signed_at) = self.signed_at {
+            // Times past i64::MAX seconds are rejected when decoding anyway.
+            let signed_at = i64::try_from(signed_at).unwrap_or(i64::MAX);
+            dict.insert(KEY_SIGNED_AT.to_vec(), Value::Int(signed_at));
         }
         Value::Dict(dict).encode()
     }
@@ -315,6 +351,12 @@ impl Manifest {
             manifest.set_mirrors(mirrors)?;
         }
 
+        if let Some(signed_at) = dict.get(KEY_SIGNED_AT) {
+            let signed_at = signed_at.as_int().ok_or(invalid("t", "not an integer"))?;
+            let signed_at = u64::try_from(signed_at).map_err(|_| invalid("t", "is negative"))?;
+            manifest.set_signed_at(Some(signed_at));
+        }
+
         Ok(manifest)
     }
 }
@@ -370,6 +412,7 @@ mod tests {
         manifest
             .set_mirrors(vec!["https://example.org/packs".to_owned()])
             .unwrap();
+        manifest.set_signed_at(Some(1_761_600_000));
         manifest
     }
 
@@ -386,6 +429,42 @@ mod tests {
             Ok(Manifest::new()),
             "empty manifest"
         );
+    }
+
+    #[test]
+    fn the_time_of_signing_is_optional_and_never_negative() {
+        let mut manifest = sample();
+        manifest.set_signed_at(None);
+        let encoded = manifest.encode();
+        assert!(
+            !encoded.windows(4).any(|w| w == b"1:ti"),
+            "no `t` when unset"
+        );
+        assert_eq!(Manifest::decode(&encoded), Ok(manifest));
+
+        let Ok(Value::Dict(mut dict)) = Value::decode(&sample().encode()) else {
+            panic!("a manifest encodes as a dictionary");
+        };
+        dict.insert(b"t".to_vec(), Value::Int(-1));
+        assert_eq!(
+            Manifest::decode(&Value::Dict(dict.clone()).encode()),
+            Err(invalid("t", "is negative"))
+        );
+        dict.insert(b"t".to_vec(), Value::Bytes(b"yesterday".to_vec()));
+        assert_eq!(
+            Manifest::decode(&Value::Dict(dict).encode()),
+            Err(invalid("t", "not an integer"))
+        );
+    }
+
+    #[test]
+    fn describes_ages() {
+        let now = 1_761_600_000;
+        assert_eq!(describe_age(now, now), "just now");
+        assert_eq!(describe_age(now - 60, now), "1 minute ago");
+        assert_eq!(describe_age(now - 7_199, now), "1 hour ago");
+        assert_eq!(describe_age(now - 2 * 86_400, now), "2 days ago");
+        assert_eq!(describe_age(now + 5, now), "in the future");
     }
 
     #[test]

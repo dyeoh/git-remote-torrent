@@ -5,6 +5,11 @@ use crate::error::Error;
 use crate::remote::{FetchRef, Remote};
 use crate::swarm::Swarm;
 
+/// A manifest older than this, served while the upstream is unavailable,
+/// draws a warning: hostile DHT nodes may be hiding a newer one (threat
+/// model M3).
+const STALE_AFTER_DAYS: u64 = 30;
+
 /// Where `list` got its refs, which decides where `fetch` gets objects.
 enum Listed {
     Upstream,
@@ -90,6 +95,7 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
                 Error::Unavailable("no manifest is published at this address".to_owned())
             })?;
             swarm.check_publisher()?;
+            report_age(&manifest, false);
             return Ok(self.list_manifest(manifest));
         };
         let upstream_error = match upstream.list(options) {
@@ -110,6 +116,7 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
                     manifest.seq().get()
                 );
                 swarm.check_publisher()?;
+                report_age(&manifest, true);
                 Ok(self.list_manifest(manifest))
             }
             Ok(None) => Err(upstream_error.into()),
@@ -211,6 +218,37 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
         }
         Ok(results)
     }
+}
+
+/// Says on stderr when `manifest` was signed, before its refs are served.
+fn report_age(manifest: &SignedManifest, upstream_down: bool) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    for line in age_notice(manifest, now, upstream_down) {
+        eprintln!("{line}");
+    }
+}
+
+/// The lines [`report_age`] prints at `now` (seconds since the Unix epoch).
+fn age_notice(manifest: &SignedManifest, now: u64, upstream_down: bool) -> Vec<String> {
+    let seq = manifest.seq().get();
+    let Some(signed_at) = manifest.manifest().signed_at() else {
+        return vec![format!(
+            "note: manifest #{seq} records no time of signing (signed before 0.4)"
+        )];
+    };
+    let mut lines = vec![format!(
+        "note: manifest #{seq} was signed {}",
+        grt_core::describe_age(signed_at, now)
+    )];
+    if upstream_down && now.saturating_sub(signed_at) > STALE_AFTER_DAYS * 86_400 {
+        lines.push(format!(
+            "warning: the manifest is more than {STALE_AFTER_DAYS} days old; if the publisher \
+             has signed a newer one, the DHT nodes reached did not return it"
+        ));
+    }
+    lines
 }
 
 fn reject_all(specs: &[PushSpec], reason: &str) -> Vec<PushResult> {
@@ -481,6 +519,31 @@ mod tests {
                 "swarm fetch #3 1"
             ],
             "the key is checked, nothing is pinned, and no second upstream attempt"
+        );
+    }
+
+    #[test]
+    fn old_manifests_served_while_the_upstream_is_down_draw_a_warning() {
+        let key = PublisherKey::generate().unwrap();
+        let day = 86_400;
+        let now = 1_761_600_000;
+        let at = |signed_at| {
+            let mut manifest = Manifest::new();
+            manifest.set_signed_at(signed_at);
+            key.sign(&manifest, Seq::new(7), b"").unwrap()
+        };
+        assert_eq!(
+            age_notice(&at(Some(now - 2 * day)), now, true),
+            ["note: manifest #7 was signed 2 days ago"]
+        );
+        let old = at(Some(now - 31 * day));
+        assert_eq!(age_notice(&old, now, false).len(), 1, "pure swarm: a note");
+        let lines = age_notice(&old, now, true);
+        assert_eq!(lines[0], "note: manifest #7 was signed 31 days ago");
+        assert!(lines[1].starts_with("warning: the manifest is more than 30 days old"));
+        assert_eq!(
+            age_notice(&at(None), now, true),
+            ["note: manifest #7 records no time of signing (signed before 0.4)"]
         );
     }
 

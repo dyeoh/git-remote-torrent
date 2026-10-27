@@ -7,7 +7,9 @@ use std::time::Duration;
 use anyhow::{Context, bail, ensure};
 use grt_core::{InfoHash, InfoHashV2, RemoteUrl, SignedManifest};
 use grt_git::Repo;
-use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack};
+use grt_swarm::{
+    ManifestDht, MirrorSource, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack,
+};
 
 use crate::cli::AdoptArgs;
 use crate::{key, sign};
@@ -188,8 +190,11 @@ async fn from_mirrors(
     work: &Path,
 ) -> Result<PathBuf, Vec<String>> {
     let mut failures = Vec::new();
+    let dir = work.join("mirrors");
     for mirror in mirrors {
-        match fetch_from_mirror(mirror, pack, sha256, &work.join("mirrors"), PACK_TIMEOUT).await {
+        // Your own key signed the manifest, so its mirrors are your choice.
+        match fetch_from_mirror(mirror, MirrorSource::User, pack, sha256, &dir, PACK_TIMEOUT).await
+        {
             Ok(file) => return Ok(file),
             Err(error) => failures.push(error.to_string()),
         }

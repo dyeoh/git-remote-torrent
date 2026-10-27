@@ -61,5 +61,6 @@ jobs:
         run: |
           test "${{ steps.second.outputs.seq }}" = 2
           test "${{ steps.second.outputs.address }}" = "${{ steps.first.outputs.address }}"
-          git clone "${{ steps.second.outputs.address }}" "$RUNNER_TEMP/clone"
+          # The manifest's mirror is on loopback, which cloners refuse unless they name it.
+          git clone -c torrent.mirror=http://127.0.0.1:8000 "${{ steps.second.outputs.address }}" "$RUNNER_TEMP/clone"
           test "$(git -C "$RUNNER_TEMP/clone" rev-parse HEAD)" = "$(git rev-parse HEAD)"

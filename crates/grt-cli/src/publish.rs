@@ -6,7 +6,7 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use grt_core::SignedManifest;
 use grt_git::Repo;
-use grt_swarm::{ManifestDht, fetch_from_mirror};
+use grt_swarm::{ManifestDht, MirrorSource, fetch_from_mirror};
 
 use crate::cli::{PublishArgs, VerifyMirrorArgs};
 use crate::{seed, sign};
@@ -70,9 +70,16 @@ pub(crate) fn verify_mirror(
         let mut failures = Vec::new();
         for (index, &pack) in manifest.packs().iter().enumerate() {
             let sha256 = manifest.packs_v2().map(|v2| v2[index]);
-            if let Err(error) =
-                runtime.block_on(fetch_from_mirror(mirror, pack, sha256, &work, PACK_TIMEOUT))
-            {
+            // The manifest is your own, so its mirrors are your choice.
+            let fetched = fetch_from_mirror(
+                mirror,
+                MirrorSource::User,
+                pack,
+                sha256,
+                &work,
+                PACK_TIMEOUT,
+            );
+            if let Err(error) = runtime.block_on(fetched) {
                 failures.push(error.to_string());
             }
         }

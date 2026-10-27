@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use grt_core::{InfoHash, InfoHashV2};
 use grt_git::Repo;
-use grt_swarm::{Error, fetch_from_mirror, hashes_of};
+use grt_swarm::{Error, MirrorSource, fetch_from_mirror, hashes_of};
 use tempfile::TempDir;
 
 /// Serves files under `root` at `http://127.0.0.1:<port>/<path>` until the
@@ -94,6 +94,7 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     fs::copy(&file, served.join(format!("{info_hash}.pack"))).expect("publish pack");
     let fetched = fetch_from_mirror(
         &format!("{base}/packs/"),
+        MirrorSource::User,
         info_hash,
         Some(sha256),
         &dir.path().join("in"),
@@ -110,6 +111,7 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     // The SHA-256 (v2) infohash is checked too, not just SHA-1.
     let result = fetch_from_mirror(
         &format!("{base}/packs"),
+        MirrorSource::User,
         info_hash,
         Some(InfoHashV2::from([9; 32])),
         &dir.path().join("wrong-v2"),
@@ -127,7 +129,15 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     tampered[last] ^= 1;
     fs::write(served.join(format!("{info_hash}.pack")), tampered).expect("tamper");
     let out = dir.path().join("tampered");
-    let result = fetch_from_mirror(&format!("{base}/packs"), info_hash, None, &out, timeout).await;
+    let result = fetch_from_mirror(
+        &format!("{base}/packs"),
+        MirrorSource::User,
+        info_hash,
+        None,
+        &out,
+        timeout,
+    )
+    .await;
     assert!(
         matches!(result, Err(Error::Mirror(ref message)) if message.contains("served a pack")),
         "tampered pack must be rejected: {result:?}"
@@ -138,7 +148,15 @@ async fn mirror_packs_are_verified_against_the_infohash() {
     );
 
     let missing = InfoHash::from([7; 20]);
-    let result = fetch_from_mirror(&format!("{base}/packs"), missing, None, &out, timeout).await;
+    let result = fetch_from_mirror(
+        &format!("{base}/packs"),
+        MirrorSource::User,
+        missing,
+        None,
+        &out,
+        timeout,
+    )
+    .await;
     assert!(
         matches!(result, Err(Error::Mirror(_))),
         "a 404 is a mirror error: {result:?}"

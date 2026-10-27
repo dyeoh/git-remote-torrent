@@ -15,6 +15,7 @@ getrandom = "0.4"
 hex = "0.4"
 ssh-key.workspace = true
 thiserror.workspace = true
+zeroize = "1"
 
 [lints]
 workspace = true

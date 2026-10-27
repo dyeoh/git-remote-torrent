@@ -1,6 +1,7 @@
 use std::fmt;
 
 use ed25519_dalek::{Signer, SigningKey};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::Error;
 use crate::manifest::Manifest;
@@ -21,22 +22,22 @@ impl PublisherKey {
     ///
     /// Returns [`Error::Random`] if the system RNG is unavailable.
     pub fn generate() -> Result<Self, Error> {
-        let mut seed = [0u8; 32];
-        getrandom::fill(&mut seed).map_err(|_| Error::Random)?;
-        Ok(PublisherKey::from_seed(seed))
+        let mut seed = Zeroizing::new([0u8; 32]);
+        getrandom::fill(seed.as_mut()).map_err(|_| Error::Random)?;
+        Ok(PublisherKey::from_seed(*seed))
     }
 
-    /// Rebuilds a key from its 32-byte secret seed.
-    pub fn from_seed(seed: [u8; 32]) -> Self {
-        PublisherKey(SigningKey::from_bytes(&seed))
+    /// Rebuilds a key from its 32-byte secret seed, and wipes `seed`.
+    pub fn from_seed(mut seed: [u8; 32]) -> Self {
+        let key = PublisherKey(SigningKey::from_bytes(&seed));
+        seed.zeroize();
+        key
     }
 
-    /// Returns the 32-byte secret seed, for storing the key.
-    ///
-    /// The returned copy is not zeroed on drop; callers persisting it should
-    /// keep it out of logs and wipe their buffers.
-    pub fn to_seed(&self) -> [u8; 32] {
-        self.0.to_bytes()
+    /// Returns the 32-byte secret seed, for storing the key. The copy is
+    /// zeroed when dropped.
+    pub fn to_seed(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.0.to_bytes())
     }
 
     /// Returns the matching public key.
@@ -86,7 +87,7 @@ mod tests {
     #[test]
     fn seed_round_trip() {
         let key = PublisherKey::generate().unwrap();
-        let restored = PublisherKey::from_seed(key.to_seed());
+        let restored = PublisherKey::from_seed(*key.to_seed());
         assert_eq!(
             key.public_key(),
             restored.public_key(),

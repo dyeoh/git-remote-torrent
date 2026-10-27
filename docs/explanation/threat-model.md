@@ -68,7 +68,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 | M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
 | M2 | A plain `sign` publishes every local branch and tag | Fixed in 0.4 |
 | M3 | Fresh clones can be served a stale manifest | Open |
-| M4 | Generated keys are unencrypted; secrets stay in memory | Open |
+| M4 | Generated keys are unencrypted; secrets stay in memory | Fixed in 0.4 |
 | L1 | Pack size from peers is not capped | Open |
 | L2 | Privacy: IPs, interests and LAN multicast | Open: documented below |
 | L3 | DHT bootstrap is the easiest point for an eclipse | Documented below |
@@ -151,8 +151,12 @@ manifest is more than 30 days old.
 `git torrent key generate` always writes an unencrypted key. The seed and the PEM text
 are not wiped from memory after use.
 
-**Fix:** `key generate --passphrase`, and `Zeroizing` buffers for the seed and the PEM.
-CI keeps an unencrypted key, held in a secret (see L4).
+**Fixed:** `git torrent key generate --passphrase` writes an encrypted OpenSSH key (bcrypt
+KDF, AES-256-CTR, as `ssh-keygen` does), and `sign` asks for the passphrase on the
+terminal. The seed, the PEM text and the passphrase are held in buffers zeroed on drop,
+and the signing key zeroes itself. This is best effort: copies the compiler makes on the
+stack, or the operating system swaps out, are beyond its reach. CI keeps an unencrypted
+key in a secret (see L4).
 
 ### L1. Pack size from peers is not capped
 

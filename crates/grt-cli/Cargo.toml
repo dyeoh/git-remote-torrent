@@ -17,9 +17,10 @@ grt-git.workspace = true
 grt-swarm.workspace = true
 grt-upstream.workspace = true
 rpassword = "7"
-ssh-key = { workspace = true, features = ["encryption"] }
+ssh-key = { workspace = true, features = ["encryption", "getrandom"] }
 thiserror.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "signal", "time", "macros"] }
+zeroize = "1"
 
 [lints]
 workspace = true

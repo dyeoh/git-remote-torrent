@@ -488,3 +488,45 @@ fn a_plain_sign_leaves_out_refs_that_exist_only_here() {
     let out = sandbox.ok(&["sign"]);
     assert!(out.contains("Manifest #2 is up to date (5 ref(s)"), "{out}");
 }
+
+#[test]
+fn generate_an_encrypted_key() {
+    let sandbox = Sandbox::new();
+    let generate = |stdin: &str| {
+        let mut child = sandbox
+            .command(env!("CARGO_BIN_EXE_git-torrent"), &sandbox.repo())
+            .args(["key", "generate", "--passphrase", "--force"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run git-torrent");
+        std::io::Write::write_all(&mut child.stdin.take().expect("stdin"), stdin.as_bytes())
+            .expect("write passphrase");
+        child.wait_with_output().expect("wait")
+    };
+
+    let output = generate("\n");
+    assert!(
+        !output.status.success()
+            && String::from_utf8_lossy(&output.stderr).contains("the passphrase is empty"),
+        "an empty passphrase is refused"
+    );
+
+    let output = generate("correct horse\n");
+    assert!(
+        output.status.success() && String::from_utf8_lossy(&output.stdout).contains("(encrypted)"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let key =
+        ssh_key::PrivateKey::read_openssh_file(&sandbox.path("torrent-home/publisher_ed25519"))
+            .expect("an OpenSSH key");
+    assert!(key.is_encrypted());
+    assert!(
+        key.decrypt("correct horse").is_ok(),
+        "the passphrase decrypts it"
+    );
+    // The public half stays readable without the passphrase.
+    assert!(sandbox.ok(&["key", "show"]).contains("torrent://"));
+}

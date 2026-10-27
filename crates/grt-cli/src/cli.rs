@@ -59,6 +59,11 @@ pub(crate) enum KeyCommand {
         /// Overwrite an existing generated key.
         #[arg(long)]
         force: bool,
+        /// Encrypt the key with a passphrase, asked for twice, or read from
+        /// the first line of stdin when stdin is not a terminal. Leave it out
+        /// only for keys kept in a CI secret.
+        #[arg(long)]
+        passphrase: bool,
     },
     /// Sign with an existing OpenSSH Ed25519 key, such as `~/.ssh/id_ed25519`.
     ///

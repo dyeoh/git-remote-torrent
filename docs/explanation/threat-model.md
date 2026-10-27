@@ -66,7 +66,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 | H1 | Key compromise is permanent | Open: design ADR planned |
 | H2 | The trust store is not consulted when fetching | Fixed in 0.4 |
 | M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
-| M2 | A plain `sign` publishes every local branch and tag | Open |
+| M2 | A plain `sign` publishes every local branch and tag | Fixed in 0.4 |
 | M3 | Fresh clones can be served a stale manifest | Open |
 | M4 | Generated keys are unencrypted; secrets stay in memory | Open |
 | L1 | Pack size from peers is not capped | Open |
@@ -130,9 +130,9 @@ Without `--update`, `git torrent sign` and `seed` publish all of `refs/heads` an
 `refs/tags`, including private work branches. A published pack cannot be recalled: anyone
 may have seeded it. `git push` and the GitHub Action already publish only the refs given.
 
-**Fix:** a plain `sign` publishes the previous manifest's refs, the current branch, and
-branches the remote already has. `--all` publishes everything, and `sign` lists what it
-will publish.
+**Fixed:** a plain `sign` (and `seed`) publishes the previous manifest's refs, the current
+branch, branches a remote has, and tags on those. It lists what it publishes and names
+what it leaves out. `--all` publishes everything.
 
 ### M3. Fresh clones can be served a stale manifest
 

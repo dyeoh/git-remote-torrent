@@ -122,6 +122,11 @@ pub(crate) struct SignArgs {
     /// Publish the previous manifest's refs without this one. Repeatable.
     #[arg(long = "delete", value_name = "REF")]
     pub(crate) deletes: Vec<RefName>,
+    /// Publish every local branch and tag. Without it, a plain sign
+    /// publishes the previous manifest's refs, the current branch, branches a
+    /// remote has, and tags on those, and names the refs it leaves out.
+    #[arg(long, conflicts_with_all = ["updates", "deletes"])]
+    pub(crate) all: bool,
     /// Keep the previous manifest's refs unchanged (`git torrent compact`).
     #[arg(skip)]
     pub(crate) keep_refs: bool,

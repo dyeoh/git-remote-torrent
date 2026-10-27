@@ -1,7 +1,8 @@
 # How to set up keys and trust
 
-Every manifest is signed by a **publisher key**. Peers accept a manifest only if
-its key is in their repository's **trust store**.
+Every manifest is signed by a **publisher key**. When refs come from a manifest rather
+than the upstream, a cloner accepts the key only if it is in their repository's **trust
+store** or pinned for the upstream (see [When trust is checked](#when-trust-is-checked)).
 
 ## Choose a signing key
 
@@ -18,11 +19,17 @@ leaves its file. Only Ed25519 keys are supported. If you don't have one, create 
 You can also generate a dedicated key:
 
 ```sh
-git torrent key generate     # writes ~/.config/git-torrent/publisher_ed25519, mode 0600
+git torrent key generate --passphrase  # writes ~/.config/git-torrent/publisher_ed25519, mode 0600
 ```
 
-A generated key is stored **unencrypted**. Either way, the key's path is saved in your
+`--passphrase` encrypts the key with a passphrase you type twice, and `sign` asks for it
+each time. Without it, the key is stored **unencrypted**, which suits only a key kept in a
+CI secret ([Publish from CI](publish-from-ci.md)). When stdin is not a terminal, the
+passphrase is read from its first line. Either way, the key's path is saved in your
 global git config as `torrent.signingKey`.
+
+Whoever holds the key controls the address for good: there is no revocation yet. Prefer
+a key per address, encrypted, over one key reused everywhere.
 
 ```sh
 git torrent key show         # your public key and torrent:// address

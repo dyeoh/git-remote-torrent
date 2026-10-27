@@ -1342,6 +1342,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -1354,6 +1355,7 @@ dependencies = [
  "proptest",
  "ssh-key",
  "thiserror 2.0.21",
+ "zeroize",
 ]
 
 [[package]]

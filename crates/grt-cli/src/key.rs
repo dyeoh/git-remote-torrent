@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
@@ -7,6 +7,8 @@ use grt_core::{PublicKey, PublisherKey};
 use ssh_key::LineEnding;
 use ssh_key::private::{Ed25519Keypair, Ed25519PrivateKey, KeypairData};
 use ssh_key::public::Ed25519PublicKey;
+use ssh_key::rand_core::OsRng;
+use zeroize::Zeroizing;
 
 use crate::cli::KeyCommand;
 
@@ -17,7 +19,7 @@ const GENERATED_KEY_COMMENT: &str = "git-torrent publisher";
 
 pub(crate) fn run(command: KeyCommand, out: &mut dyn Write) -> anyhow::Result<()> {
     match command {
-        KeyCommand::Generate { force } => {
+        KeyCommand::Generate { force, passphrase } => {
             let path = config_home()?.join(GENERATED_KEY_FILE);
             if path.exists() && !force {
                 bail!(
@@ -26,16 +28,29 @@ pub(crate) fn run(command: KeyCommand, out: &mut dyn Write) -> anyhow::Result<()
                     path.display()
                 );
             }
+            let passphrase = if passphrase {
+                Some(new_passphrase()?)
+            } else {
+                None
+            };
             let key = PublisherKey::generate()?;
-            write_private_key(&path, &key)?;
+            write_private_key(&path, &key, passphrase.as_deref().map(String::as_str))?;
             grt_git::set_global_config(SIGNING_KEY_CONFIG, &path.to_string_lossy())?;
-            writeln!(out, "Generated {} (unencrypted).", path.display())?;
+            if passphrase.is_some() {
+                writeln!(out, "Generated {} (encrypted).", path.display())?;
+            } else {
+                writeln!(
+                    out,
+                    "Generated {} (unencrypted; `--passphrase` encrypts it).",
+                    path.display()
+                )?;
+            }
             print_public(out, &key.public_key())?;
         }
         KeyCommand::Use { path } => {
             let path =
                 fs::canonicalize(&path).with_context(|| format!("reading {}", path.display()))?;
-            let key = load_private_key(&path)?;
+            let key = load_private_key(&path, ask_on_terminal)?;
             grt_git::set_global_config(SIGNING_KEY_CONFIG, &path.to_string_lossy())?;
             writeln!(out, "Signing with {}.", path.display())?;
             print_public(out, &key.public_key())?;
@@ -45,9 +60,36 @@ pub(crate) fn run(command: KeyCommand, out: &mut dyn Write) -> anyhow::Result<()
     Ok(())
 }
 
-/// Loads the configured signing key, prompting for its passphrase if needed.
+/// Loads the configured signing key, prompting for its passphrase on the
+/// terminal if needed.
 pub(crate) fn signing_key() -> anyhow::Result<PublisherKey> {
-    load_private_key(&signing_key_path()?)
+    load_private_key(&signing_key_path()?, ask_on_terminal)
+}
+
+fn ask_on_terminal(path: &Path) -> anyhow::Result<Zeroizing<String>> {
+    let prompt = format!("Passphrase for {}: ", path.display());
+    Ok(Zeroizing::new(rpassword::prompt_password(prompt)?))
+}
+
+/// A passphrase for a new key: typed twice on a terminal, or the first line
+/// of stdin otherwise.
+fn new_passphrase() -> anyhow::Result<Zeroizing<String>> {
+    let passphrase = if io::stdin().is_terminal() {
+        let first = Zeroizing::new(rpassword::prompt_password("New passphrase: ")?);
+        let again = Zeroizing::new(rpassword::prompt_password("Same passphrase again: ")?);
+        if first != again {
+            bail!("the passphrases differ");
+        }
+        first
+    } else {
+        let mut line = Zeroizing::new(String::new());
+        io::stdin().lock().read_line(&mut line)?;
+        Zeroizing::new(line.trim_end_matches(['\r', '\n']).to_owned())
+    };
+    if passphrase.is_empty() {
+        bail!("the passphrase is empty; leave out --passphrase for an unencrypted key");
+    }
+    Ok(passphrase)
 }
 
 /// The configured signing key's public half; never prompts.
@@ -88,17 +130,25 @@ fn config_home() -> anyhow::Result<PathBuf> {
 }
 
 fn read_openssh(path: &Path) -> anyhow::Result<ssh_key::PrivateKey> {
-    let pem = fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    ssh_key::PrivateKey::from_openssh(pem)
+    let pem = Zeroizing::new(
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?,
+    );
+    ssh_key::PrivateKey::from_openssh(pem.as_bytes())
         .with_context(|| format!("{} is not an OpenSSH private key", path.display()))
 }
 
-fn load_private_key(path: &Path) -> anyhow::Result<PublisherKey> {
+/// Reads the key at `path`, asking `passphrase` for the passphrase if it is
+/// encrypted.
+fn load_private_key(
+    path: &Path,
+    passphrase: impl FnOnce(&Path) -> anyhow::Result<Zeroizing<String>>,
+) -> anyhow::Result<PublisherKey> {
     let mut key = read_openssh(path)?;
     if key.is_encrypted() {
-        let passphrase =
-            rpassword::prompt_password(format!("Passphrase for {}: ", path.display()))?;
-        key = key.decrypt(passphrase).context("wrong passphrase")?;
+        let passphrase = passphrase(path)?;
+        key = key
+            .decrypt(passphrase.as_bytes())
+            .context("wrong passphrase")?;
     }
     let KeypairData::Ed25519(pair) = key.key_data() else {
         bail!(
@@ -117,13 +167,20 @@ fn load_private_key(path: &Path) -> anyhow::Result<PublisherKey> {
     Ok(publisher)
 }
 
-fn write_private_key(path: &Path, key: &PublisherKey) -> anyhow::Result<()> {
+fn write_private_key(
+    path: &Path,
+    key: &PublisherKey,
+    passphrase: Option<&str>,
+) -> anyhow::Result<()> {
     let pair = Ed25519Keypair {
         public: Ed25519PublicKey(key.public_key().to_bytes()),
         private: Ed25519PrivateKey::from_bytes(&key.to_seed()),
     };
-    let pem = ssh_key::PrivateKey::new(KeypairData::Ed25519(pair), GENERATED_KEY_COMMENT)?
-        .to_openssh(LineEnding::LF)?;
+    let mut private = ssh_key::PrivateKey::new(KeypairData::Ed25519(pair), GENERATED_KEY_COMMENT)?;
+    if let Some(passphrase) = passphrase {
+        private = private.encrypt(&mut OsRng, passphrase)?;
+    }
+    let pem = private.to_openssh(LineEnding::LF)?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     }
@@ -142,4 +199,35 @@ fn print_public(out: &mut dyn Write, key: &PublicKey) -> anyhow::Result<()> {
     writeln!(out, "Public key: {}", key.to_openssh(GENERATED_KEY_COMMENT))?;
     writeln!(out, "Address:    torrent://{key}")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_encrypted_key_needs_its_passphrase() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("key");
+        let key = PublisherKey::generate().unwrap();
+        write_private_key(&path, &key, Some("correct horse")).unwrap();
+        assert!(read_openssh(&path).unwrap().is_encrypted());
+
+        let given =
+            |passphrase: &'static str| move |_: &Path| Ok(Zeroizing::new(passphrase.to_owned()));
+        let loaded = load_private_key(&path, given("correct horse")).unwrap();
+        assert_eq!(loaded.public_key(), key.public_key());
+        let error = load_private_key(&path, given("wrong")).unwrap_err();
+        assert!(error.to_string().contains("wrong passphrase"), "{error}");
+    }
+
+    #[test]
+    fn an_unencrypted_key_never_asks() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("key");
+        let key = PublisherKey::generate().unwrap();
+        write_private_key(&path, &key, None).unwrap();
+        let loaded = load_private_key(&path, |_| panic!("asked for a passphrase")).unwrap();
+        assert_eq!(loaded.public_key(), key.public_key());
+    }
 }

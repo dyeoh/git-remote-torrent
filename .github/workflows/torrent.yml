@@ -1,0 +1,53 @@
+name: Torrent
+
+# Dogfoods the action: publishes this repository at its torrent:// address on
+# every push, with packs in the `torrent-packs` release, and republishes the
+# manifest hourly because DHT entries expire after about two hours.
+#
+# Set up: a `TORRENT_SIGNING_KEY` secret (an unencrypted OpenSSH Ed25519 key)
+# and a `TORRENT_PUBLISH` variable set to `true`.
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+# One run at a time: each continues the chain the previous one published.
+concurrency:
+  group: torrent
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: vars.TORRENT_PUBLISH == 'true' && github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the torrent-packs release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+      # main and every tag, so a run skipped by the concurrency group loses nothing.
+      - run: git update-ref refs/heads/main refs/remotes/origin/main
+      - uses: ./
+        with:
+          version: source
+          signing-key: ${{ secrets.TORRENT_SIGNING_KEY }}
+          refs: refs/heads/main refs/tags
+
+  republish:
+    if: vars.TORRENT_PUBLISH == 'true' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - uses: ./
+        with:
+          command: republish
+          version: source

@@ -1,0 +1,65 @@
+name: Action
+
+# Runs the action end to end on the public DHT: with a throwaway key, a mirror
+# on localhost, and a fresh `.git/torrent` for every run, as on a new runner.
+on:
+  pull_request:
+    paths: [action.yml, "action/**", .github/workflows/action.yml, "crates/grt-cli/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: Swatinem/rust-cache@v2
+      - id: setup
+        name: A throwaway key, a branch and a local mirror
+        run: |
+          ssh-keygen -q -t ed25519 -N '' -C action-test -f "$RUNNER_TEMP/key"
+          { echo 'key<<EOF'; cat "$RUNNER_TEMP/key"; echo EOF; } >> "$GITHUB_OUTPUT"
+          git config --global user.name CI
+          git config --global user.email ci@example.com
+          git switch -c action-test
+          mkdir "$RUNNER_TEMP/www"
+          nohup python3 -m http.server 8000 --bind 127.0.0.1 --directory "$RUNNER_TEMP/www" > /dev/null 2>&1 &
+
+      - id: first
+        uses: ./
+        with:
+          version: source
+          signing-key: ${{ steps.setup.outputs.key }}
+          refs: refs/heads/action-test
+          mirror: http://127.0.0.1:8000
+          upload-command: cp "$GIT_TORRENT_PACKS"/* "$RUNNER_TEMP/www/"
+      - name: Forget the chain and push a commit, as on a new runner
+        run: |
+          test "${{ steps.first.outputs.seq }}" = 1
+          rm -rf .git/torrent
+          git commit -q --allow-empty -m "a pushed commit"
+
+      - id: second
+        uses: ./
+        with:
+          version: source
+          signing-key: ${{ steps.setup.outputs.key }}
+          refs: refs/heads/action-test
+          mirror: http://127.0.0.1:8000
+          upload-command: cp "$GIT_TORRENT_PACKS"/* "$RUNNER_TEMP/www/"
+      - uses: ./
+        with:
+          command: republish
+          version: source
+          mirror: http://127.0.0.1:8000
+
+      - name: Clone the published address
+        run: |
+          test "${{ steps.second.outputs.seq }}" = 2
+          test "${{ steps.second.outputs.address }}" = "${{ steps.first.outputs.address }}"
+          git clone "${{ steps.second.outputs.address }}" "$RUNNER_TEMP/clone"
+          test "$(git -C "$RUNNER_TEMP/clone" rev-parse HEAD)" = "$(git rev-parse HEAD)"

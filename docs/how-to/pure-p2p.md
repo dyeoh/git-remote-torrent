@@ -55,7 +55,7 @@ With several `--repo`, each repository keeps the name it was signed with.
 |---|---|---|
 | DHT bootstrap nodes | A new client starts from mainline's well-known nodes before it knows any peers | `torrent.dhtBootstrap` (cloners) and `seed --dht-bootstrap` point at nodes you run or trust |
 | At least one online peer or mirror | Packs exist only where someone holds them | Several seeders, friends running `--republish`, a mirror |
-| Manifest republishing | DHT entries expire about two hours after they were last stored | Any running `seed`, or `republish` from cron |
+| Manifest republishing | DHT entries expire about two hours after they were last stored | Any running `seed`, `republish` from cron, or the [CI action](publish-from-ci.md) |
 | Reachability | NAT blocks incoming connections | Port forwarding, `--upnp`, or a peer with a public address |
 
 ## Keys

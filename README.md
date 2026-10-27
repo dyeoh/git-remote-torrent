@@ -107,12 +107,14 @@ address; there is no multi-writer collaboration.
 | Needs running | Nothing new | An always-on `git torrent seed` (a service, not a daemon) or a mirror |
 
 Set up the pure mode with [Run as pure P2P](docs/how-to/pure-p2p.md), which includes ready-made
-systemd and launchd service files.
+systemd and launchd service files. With neither a seeder nor a server of your own, the
+[GitHub Action](docs/how-to/publish-from-ci.md) publishes every push, with packs mirrored in
+a release.
 
 ## Documentation
 
 - [Tutorial: your first immortal repo](docs/tutorials/first-immortal-repo.md)
-- [How to set up keys and trust](docs/how-to/keys-and-trust.md) · [Mirror packs over HTTP](docs/how-to/http-mirrors.md)
+- [How to set up keys and trust](docs/how-to/keys-and-trust.md) · [Mirror packs over HTTP](docs/how-to/http-mirrors.md) · [Publish from CI](docs/how-to/publish-from-ci.md)
 - [Architecture](docs/explanation/architecture.md) · [Roadmap](docs/explanation/roadmap.md) · [ADRs](docs/adr/)
 - [Contributing](CONTRIBUTING.md) · [Style guide](docs/STYLE.md) · [Security](SECURITY.md)
 

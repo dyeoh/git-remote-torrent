@@ -13,6 +13,7 @@ mod protocol;
 mod remote;
 mod router;
 mod swarm;
+mod trust;
 
 pub use crate::dht_swarm::{DhtSwarm, Settings};
 pub use crate::error::Error;

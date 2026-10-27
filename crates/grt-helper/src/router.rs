@@ -89,6 +89,7 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
             let manifest = swarm.manifest()?.ok_or_else(|| {
                 Error::Unavailable("no manifest is published at this address".to_owned())
             })?;
+            swarm.check_publisher()?;
             return Ok(self.list_manifest(manifest));
         };
         let upstream_error = match upstream.list(options) {
@@ -108,6 +109,7 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
                      warning: serving manifest #{} from the swarm",
                     manifest.seq().get()
                 );
+                swarm.check_publisher()?;
                 Ok(self.list_manifest(manifest))
             }
             Ok(None) => Err(upstream_error.into()),
@@ -123,12 +125,19 @@ impl<U: Upstream, S: Swarm> Remote for Router<U, S> {
             let swarm = self.swarm.as_mut().ok_or_else(no_source)?;
             return swarm.fetch(manifest, &wants);
         }
-        if self.try_swarm_fetch(&wants) {
-            return Ok(());
+        if !self.try_swarm_fetch(&wants) {
+            let upstream = self.upstream.as_ref().ok_or_else(no_source)?;
+            let names: Vec<String> = refs.iter().map(|wanted| wanted.name.clone()).collect();
+            upstream.fetch(&names, options)?;
         }
-        let upstream = self.upstream.as_ref().ok_or_else(no_source)?;
-        let names: Vec<String> = refs.iter().map(|wanted| wanted.name.clone()).collect();
-        Ok(upstream.fetch(&names, options)?)
+        // The live upstream listed these refs, so its torrent address is the
+        // one to expect if it later goes away.
+        if let Some(swarm) = &mut self.swarm
+            && let Err(error) = swarm.pin()
+        {
+            eprintln!("warning: could not pin the publisher key ({error})");
+        }
+        Ok(())
     }
 
     fn push(
@@ -297,6 +306,7 @@ mod tests {
         manifest: Option<SignedManifest>,
         fail: bool,
         publishes: bool,
+        untrusted: bool,
     }
 
     impl Swarm for FakeSwarm {
@@ -345,6 +355,19 @@ mod tests {
                 .push(format!("swarm unsynced {refs:?}"));
             Ok(())
         }
+
+        fn check_publisher(&mut self) -> Result<(), Error> {
+            self.log.borrow_mut().push("swarm check".to_owned());
+            if self.untrusted {
+                return Err(Error::Untrusted("not trusted".to_owned()));
+            }
+            Ok(())
+        }
+
+        fn pin(&mut self) -> Result<(), Error> {
+            self.log.borrow_mut().push("swarm pin".to_owned());
+            Ok(())
+        }
     }
 
     /// A manifest with `main` at `tip` and `HEAD` pointing to it.
@@ -373,6 +396,7 @@ mod tests {
             manifest,
             fail,
             publishes: true,
+            untrusted: false,
         };
         let upstream = FakeUpstream {
             log: log.clone(),
@@ -400,8 +424,13 @@ mod tests {
         router.fetch(&want(B), &options).unwrap();
         assert_eq!(
             *log.borrow(),
-            ["upstream list", "swarm manifest", "swarm fetch #3 1"],
-            "upstream refs, swarm objects"
+            [
+                "upstream list",
+                "swarm manifest",
+                "swarm fetch #3 1",
+                "swarm pin"
+            ],
+            "upstream refs, swarm objects; the key is pinned"
         );
     }
 
@@ -416,7 +445,8 @@ mod tests {
             [
                 "upstream list",
                 "swarm manifest",
-                r#"upstream fetch ["refs/heads/main"]"#
+                r#"upstream fetch ["refs/heads/main"]"#,
+                "swarm pin"
             ],
             "a stale manifest is not used"
         );
@@ -429,7 +459,7 @@ mod tests {
         router.list(&options).unwrap();
         router.fetch(&want(B), &options).unwrap();
         assert_eq!(
-            log.borrow().last().map(String::as_str),
+            log.borrow().iter().rev().nth(1).map(String::as_str),
             Some(r#"upstream fetch ["refs/heads/main"]"#),
             "the upstream finishes what the swarm could not"
         );
@@ -444,9 +474,23 @@ mod tests {
         router.fetch(&want(A), &options).unwrap();
         assert_eq!(
             *log.borrow(),
-            ["upstream list", "swarm manifest", "swarm fetch #3 1"],
-            "no second upstream attempt"
+            [
+                "upstream list",
+                "swarm manifest",
+                "swarm check",
+                "swarm fetch #3 1"
+            ],
+            "the key is checked, nothing is pinned, and no second upstream attempt"
         );
+    }
+
+    #[test]
+    fn dead_upstream_with_an_untrusted_key_fails() {
+        let options = TransferOptions::default();
+        let (mut router, _log) = router(false, Some(signed(A)), false);
+        router.swarm.as_mut().unwrap().untrusted = true;
+        let error = router.list(&options).unwrap_err();
+        assert!(matches!(error, Error::Untrusted(_)), "{error}");
     }
 
     #[test]
@@ -470,6 +514,7 @@ mod tests {
             manifest: Some(signed(A)),
             fail: false,
             publishes: false,
+            untrusted: false,
         });
         let refs = router.list(&options).unwrap();
         assert_eq!(names(&refs), ["HEAD", "refs/heads/main"], "manifest refs");
@@ -513,6 +558,7 @@ mod tests {
             manifest: Some(signed(A)),
             fail: false,
             publishes: true,
+            untrusted: false,
         });
         let pushed = router
             .push(

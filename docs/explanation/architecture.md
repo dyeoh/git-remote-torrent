@@ -43,7 +43,9 @@ objects not yet present, so packs can't be applied out of order.
    object git asked for, the pack chain is downloaded from the swarm. If the swarm fails,
    or the upstream is ahead of the manifest, the upstream serves the fetch instead.
 3. If the upstream can't list its refs (deleted, private, offline), the manifest serves
-   both `list` and `fetch`, and the user is told on stderr.
+   both `list` and `fetch`, and the user is told on stderr. The publisher's key is printed and
+   must be trusted or pinned ([keys and trust](../how-to/keys-and-trust.md#when-trust-is-checked)).
+   A fetch that the live upstream answered pins the remote's key for that upstream.
 
 The last manifest fetched is kept in `.git/torrent/fetched/`. It is used when the DHT is
 unreachable, and an older manifest from the DHT never replaces it, which blocks rollback.

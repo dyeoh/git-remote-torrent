@@ -28,7 +28,8 @@ fn main() -> anyhow::Result<()> {
                 Some((key, salt)) => Some(
                     DhtSwarm::new(repo, key, &salt, Settings::from_config()?)?
                         .publishing(publishes(name)?)
-                        .for_remote(name),
+                        .for_remote(name)
+                        .for_upstream(Some(upstream)),
                 ),
                 None => None,
             };

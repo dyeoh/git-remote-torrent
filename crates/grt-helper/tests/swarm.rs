@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::Duration;
 
-use grt_core::{InfoHashV2, Manifest, ObjectId, PublisherKey, Seq, SignedManifest};
+use grt_core::{
+    InfoHashV2, Manifest, ObjectId, PublisherKey, Seq, SignedManifest, TRUSTED_KEYS_FILE,
+    TrustStore,
+};
 use grt_git::Repo;
 use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig};
 use mainline::Testnet;
@@ -499,4 +502,73 @@ async fn a_pack_failing_its_sha256_is_refused() {
         !output.status.success() && stderr.contains("SHA-256 (v2) infohash"),
         "the right SHA-1 is not enough; the signed SHA-256 must match too:\n{stderr}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_first_key_is_pinned_and_the_trust_store_decides() {
+    let sandbox = Sandbox::new();
+    sandbox.commit("README");
+    let upstream = sandbox.path("upstream.git");
+    sandbox.ok(
+        sandbox.dir.path(),
+        &["clone", "-q", "--bare", "source", "upstream.git"],
+    );
+    let url = format!("file://{}", upstream.display());
+    let mut publisher = Publisher::start(&sandbox, "", Some(url.clone())).await;
+    publisher.publish(&sandbox).await;
+    let key = publisher.key.public_key();
+
+    // A clone while the upstream answers pins the address's key for it.
+    let address = format!("remote.origin.torrentAddress={}", publisher.address());
+    sandbox.swarm_ok(
+        &publisher,
+        sandbox.dir.path(),
+        &["clone", "-c", &address, &format!("torrent::{url}"), "clone"],
+    );
+    let pins = fs::read_to_string(sandbox.path("clone/.git/torrent/pins")).expect("pins");
+    assert!(pins.contains(&format!("{key} {url}")), "{pins}");
+
+    // Someone re-signs the same manifest with their own key, and talks the
+    // user into using it; then the upstream goes away.
+    let impostor = PublisherKey::generate().expect("key");
+    let forged = impostor
+        .sign(
+            publisher.signed.as_ref().expect("published").manifest(),
+            Seq::new(1),
+            b"",
+        )
+        .expect("sign");
+    publisher.dht.publish(&forged, None).await.expect("publish");
+    fs::rename(&upstream, sandbox.path("taken-down.git")).expect("take the upstream down");
+
+    let clone = sandbox.path("clone");
+    let impostor_address = format!(
+        "remote.origin.torrentAddress=torrent://{}",
+        impostor.public_key()
+    );
+    let output = sandbox.swarm_git(&publisher, &clone, &["-c", &impostor_address, "fetch"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success()
+            && stderr.contains("note: refs are signed by ssh-ed25519")
+            && stderr.contains("was first fetched with key"),
+        "a key other than the pinned one is refused, and shown:\n{stderr}"
+    );
+    sandbox.swarm_ok(&publisher, &clone, &["fetch"]);
+
+    // A trust store with entries decides instead of the pin.
+    let mut store = TrustStore::new();
+    store.insert(impostor.public_key(), "new key");
+    fs::write(
+        clone.join(".git/torrent").join(TRUSTED_KEYS_FILE),
+        store.to_string(),
+    )
+    .expect("trust store");
+    let output = sandbox.swarm_git(&publisher, &clone, &["fetch"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success() && stderr.contains("not in this repository's trusted keys"),
+        "the pinned key is refused once it is not in the trust store:\n{stderr}"
+    );
+    sandbox.swarm_ok(&publisher, &clone, &["-c", &impostor_address, "fetch"]);
 }

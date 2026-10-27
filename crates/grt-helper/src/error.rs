@@ -20,6 +20,9 @@ pub enum Error {
     /// Neither the upstream nor the swarm can serve the request.
     #[error("{0}")]
     Unavailable(String),
+    /// The manifest's key is not one this repository takes refs from.
+    #[error("{0}")]
+    Untrusted(String),
     /// Git sent something this helper does not understand.
     #[error("protocol error: {0}")]
     Protocol(String),

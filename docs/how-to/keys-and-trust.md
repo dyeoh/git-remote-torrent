@@ -47,6 +47,26 @@ serve. It only accepts HTTPS, and it skips RSA and ECDSA keys. Once imported, th
 stay in your trust store, so manifests can still be verified after the forge account or
 the forge itself is gone.
 
+### When trust is checked
+
+While the upstream of a hybrid remote answers, its refs are canonical, and git's object
+ids keep anything fetched from the swarm honest, so the publisher's key doesn't matter.
+When refs come from a manifest instead (a `torrent://` remote, or a hybrid remote whose
+upstream is gone), the key decides what code you get:
+
+1. The helper always prints the key: `note: refs are signed by ssh-ed25519 AAAA…
+   (torrent://<hex>)`. Compare it with the keys the publisher lists on their forge.
+2. If the repository's trust store has any entries, only those keys are accepted.
+3. Otherwise, a hybrid remote accepts the key **pinned** for its upstream. The first
+   fetch that succeeds while the upstream answers records the remote's key in
+   `.git/torrent/pins`, like SSH's `known_hosts`. If `torrentAddress` later points at
+   another key, that key is refused once the upstream is gone.
+
+If a publisher really moves to a new key, `git torrent trust add <new key>` accepts it
+and moves the pin. Pinning can't protect a clone made with a wrong `torrentAddress` in the
+first place, so check the printed key against the publisher's forge keys, or import them
+with `trust import` before you need them.
+
 ## Sign, seed and check
 
 ```sh

@@ -92,7 +92,9 @@ fn save(repo: &Repo, store: &TrustStore) -> anyhow::Result<()> {
 }
 
 fn path(repo: &Repo) -> PathBuf {
-    repo.git_dir().join("torrent").join("trusted-keys")
+    repo.git_dir()
+        .join("torrent")
+        .join(grt_core::TRUSTED_KEYS_FILE)
 }
 
 /// Accepts a 64-digit hex key or an OpenSSH public key line; returns the key

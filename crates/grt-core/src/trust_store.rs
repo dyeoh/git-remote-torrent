@@ -4,6 +4,9 @@ use std::str::FromStr;
 use crate::error::Error;
 use crate::public_key::PublicKey;
 
+/// The trust store's file name, under `.git/torrent/`.
+pub const TRUSTED_KEYS_FILE: &str = "trusted-keys";
+
 /// The set of publisher keys whose manifests a repository accepts.
 ///
 /// Stored as OpenSSH public key lines, one per key, with the comment used as

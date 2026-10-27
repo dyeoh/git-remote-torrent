@@ -48,4 +48,22 @@ pub trait Swarm {
     ///
     /// Returns an error if the record cannot be written.
     fn record_unsynced(&mut self, refs: &[String]) -> Result<(), Error>;
+
+    /// Says on stderr which key signs this address's manifests, and checks
+    /// that refs may come from them. Called before refs are served from a
+    /// manifest instead of the upstream.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Untrusted`] if the repository trusts other keys, or
+    /// pinned another key for this upstream.
+    fn check_publisher(&mut self) -> Result<(), Error>;
+
+    /// Pins this address's key for the upstream, unless it has a pin, after
+    /// a fetch the live upstream answered (trust on first use).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the pin cannot be stored.
+    fn pin(&mut self) -> Result<(), Error>;
 }

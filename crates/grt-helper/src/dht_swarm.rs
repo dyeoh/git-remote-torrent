@@ -16,6 +16,7 @@ use grt_upstream::{PushResult, PushSpec, PushStatus};
 
 use crate::error::Error;
 use crate::swarm::Swarm;
+use crate::trust;
 
 /// Refs pushed to the swarm while the upstream was down, as `<remote> <ref>`
 /// lines under `.git/torrent/`; read by `git torrent reconcile`.
@@ -112,6 +113,7 @@ pub struct DhtSwarm {
     resolved: bool,
     publishes: bool,
     remote: Option<String>,
+    upstream: Option<String>,
     manifest: Option<SignedManifest>,
 }
 
@@ -140,6 +142,7 @@ impl DhtSwarm {
             resolved: false,
             publishes: false,
             remote: None,
+            upstream: None,
             manifest: None,
         })
     }
@@ -157,6 +160,14 @@ impl DhtSwarm {
     #[must_use]
     pub fn for_remote(mut self, remote: Option<&str>) -> Self {
         self.remote = remote.map(str::to_owned);
+        self
+    }
+
+    /// Names the upstream of a hybrid remote, which the publisher key is
+    /// pinned for.
+    #[must_use]
+    pub fn for_upstream(mut self, upstream: Option<&str>) -> Self {
+        self.upstream = upstream.map(str::to_owned);
         self
     }
 
@@ -465,6 +476,21 @@ impl Swarm for DhtSwarm {
 
     fn publishes(&self) -> bool {
         self.publishes
+    }
+
+    fn check_publisher(&mut self) -> Result<(), Error> {
+        trust::check(
+            self.repo.as_ref().map(Repo::git_dir),
+            &self.key,
+            self.upstream.as_deref(),
+        )
+    }
+
+    fn pin(&mut self) -> Result<(), Error> {
+        match (&self.repo, &self.upstream) {
+            (Some(repo), Some(upstream)) => trust::pin(repo.git_dir(), &self.key, upstream),
+            _ => Ok(()),
+        }
     }
 
     fn push(

@@ -56,4 +56,4 @@ pub use crate::publisher_key::PublisherKey;
 pub use crate::ref_name::RefName;
 pub use crate::remote_url::RemoteUrl;
 pub use crate::signed_manifest::{MAX_SALT_LEN, MAX_VALUE_LEN, Seq, SignedManifest};
-pub use crate::trust_store::{TrustStore, TrustedKey};
+pub use crate::trust_store::{TRUSTED_KEYS_FILE, TrustStore, TrustedKey};

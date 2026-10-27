@@ -64,7 +64,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 | | Finding | Status |
 |---|---|---|
 | H1 | Key compromise is permanent | Open: design ADR planned |
-| H2 | The trust store is not consulted when fetching | Open |
+| H2 | The trust store is not consulted when fetching | Fixed in 0.4 |
 | M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
 | M2 | A plain `sign` publishes every local branch and tag | Open |
 | M3 | Fresh clones can be served a stale manifest | Open |
@@ -95,10 +95,16 @@ the forge answers, git's object hashes keep the content honest. Once the forge i
 unreachable, the attacker's manifest supplies the refs and therefore the code. The
 manifest's signed upstream URL proves nothing, because anyone can sign anyone's URL.
 
-**Fix (decided):** pin on first use, like SSH `known_hosts`. Always print the publisher's
-key when refs come from a manifest. Refuse keys outside the trust store when the store has
-entries. Record the key seen on the first fetch that succeeds against a live upstream, and
-refuse a different key for that upstream later unless `git torrent trust` allows it.
+**Fixed:** whenever refs come from a manifest (a `torrent://` remote, or a hybrid remote
+whose upstream is gone), the helper prints the publisher's key, as an OpenSSH line and as
+an address. If the repository's trust store has entries, other keys are refused.
+Otherwise, a hybrid remote's key is pinned for its upstream in `.git/torrent/pins` on the
+first fetch that succeeds against the live upstream, and a different key is refused later.
+`git torrent trust add` accepts a new key and moves the pin to it.
+
+What remains is trust on first use, as with SSH: a clone made with an attacker's
+`torrentAddress` pins the attacker's key. The printed key, and keys imported beforehand
+with `git torrent trust import`, are the defence.
 
 ### M1. Manifest mirrors make cloners send requests to any host
 

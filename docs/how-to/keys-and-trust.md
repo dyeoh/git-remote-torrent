@@ -70,11 +70,23 @@ with `trust import` before you need them.
 ## Sign, seed and check
 
 ```sh
-git torrent sign                 # sign refs/heads/* and refs/tags/*, with HEAD and the upstream
+git torrent sign                 # sign your shared branches and tags, with HEAD and the upstream
+git torrent sign --all           # every local branch and tag
 git torrent sign --name project  # publish as torrent://<key>/project instead
 git torrent seed                 # sign, publish to the DHT, and seed the packs until Ctrl-C
 git torrent status               # the manifest, whether its key is trusted, and drift from local refs
 ```
+
+**What gets published.** A published pack can't be recalled, so a plain `sign` publishes
+only refs that are already shared:
+
+- the refs in the previous manifest;
+- the current branch;
+- branches a remote has (`refs/remotes/<remote>/<branch>`);
+- tags on any of those branches.
+
+It lists what it publishes and names the local branches and tags it leaves out. `--all`
+publishes every local branch and tag. Pushes publish exactly the refs pushed.
 
 **The pack chain.** Each `sign` checks whether your refs reach objects that the previous
 manifest's packs don't contain. If they do, it writes one new pack holding just those

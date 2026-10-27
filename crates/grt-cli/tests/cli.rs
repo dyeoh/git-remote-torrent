@@ -453,3 +453,38 @@ fn sign_compacts_by_itself_when_the_manifest_is_full() {
         "{out}"
     );
 }
+
+#[test]
+fn a_plain_sign_leaves_out_refs_that_exist_only_here() {
+    let sandbox = Sandbox::new();
+    let repo = sandbox.repo();
+    sandbox.commit("README");
+    sandbox.git(&["tag", "v1"], &repo);
+    // A branch the remote has, and work that exists only on this machine.
+    sandbox.git(&["branch", "feature"], &repo);
+    sandbox.git(
+        &["update-ref", "refs/remotes/origin/feature", "HEAD"],
+        &repo,
+    );
+    sandbox.git(&["switch", "-q", "-c", "wip"], &repo);
+    sandbox.commit("SECRET");
+    sandbox.git(&["tag", "wip-tag"], &repo);
+    sandbox.git(&["switch", "-q", "main"], &repo);
+    sandbox.ok(&["key", "generate"]);
+
+    let out = sandbox.ok(&["sign"]);
+    assert!(
+        out.contains("Publishing refs/heads/feature, refs/heads/main, refs/tags/v1.")
+            && out.contains(
+                "Not publishing refs that exist only here: refs/heads/wip, refs/tags/wip-tag"
+            )
+            && out.contains("Signed manifest #1 with 3 ref(s)"),
+        "the current branch, the remote's branches and their tags only: {out}"
+    );
+
+    let out = sandbox.ok(&["sign", "--all"]);
+    assert!(out.contains("Signed manifest #2 with 5 ref(s)"), "{out}");
+    // Once published, refs stay published by a plain sign.
+    let out = sandbox.ok(&["sign"]);
+    assert!(out.contains("Manifest #2 is up to date (5 ref(s)"), "{out}");
+}

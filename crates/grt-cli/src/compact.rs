@@ -26,6 +26,7 @@ pub(crate) fn run(args: &CompactArgs, cwd: &Path, out: &mut dyn Write) -> anyhow
         mirrors: Vec::new(),
         updates: Vec::new(),
         deletes: Vec::new(),
+        all: false,
         keep_refs: true,
     };
     let runtime = tokio::runtime::Builder::new_current_thread()

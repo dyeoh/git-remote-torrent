@@ -45,10 +45,34 @@ impl Repo {
     /// Returns an error if git fails, prints an unparseable line, or reports
     /// a ref name or object id that fails validation.
     pub fn refs(&self, patterns: &[&str]) -> Result<Vec<(RefName, ObjectId)>, Error> {
+        self.for_each_ref(patterns, None)
+    }
+
+    /// Like [`Repo::refs`], but only refs whose commits are reachable from
+    /// `tip`, such as the tags on a branch.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Repo::refs`].
+    pub fn refs_merged_into(
+        &self,
+        patterns: &[&str],
+        tip: &ObjectId,
+    ) -> Result<Vec<(RefName, ObjectId)>, Error> {
+        self.for_each_ref(patterns, Some(tip))
+    }
+
+    fn for_each_ref(
+        &self,
+        patterns: &[&str],
+        merged_into: Option<&ObjectId>,
+    ) -> Result<Vec<(RefName, ObjectId)>, Error> {
         let mut command = self.git();
-        command
-            .args(["for-each-ref", "--format=%(objectname) %(refname)"])
-            .args(patterns);
+        command.args(["for-each-ref", "--format=%(objectname) %(refname)"]);
+        if let Some(tip) = merged_into {
+            command.arg(format!("--merged={tip}"));
+        }
+        command.args(patterns);
         let stdout = run(command, "for-each-ref")?;
         stdout
             .lines()

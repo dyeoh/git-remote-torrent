@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use grt_core::{
-    InfoHash, InfoHashV2, Manifest, ObjectId, PublisherKey, RemoteUrl, Seq, SignedManifest,
+    InfoHash, InfoHashV2, Manifest, ObjectId, PublisherKey, RefName, RemoteUrl, Seq, SignedManifest,
 };
 use grt_git::Repo;
 
@@ -63,7 +63,7 @@ pub(crate) async fn sign_next(
         previous.public_key() == key.public_key() && previous.salt() == args.name.as_bytes()
     });
 
-    let refs = refs_manifest(repo, args, previous.as_ref())?;
+    let refs = refs_manifest(repo, args, previous.as_ref(), out)?;
     let seq = match &previous {
         Some(previous) => previous.seq().next()?,
         None => Seq::new(1),
@@ -160,12 +160,14 @@ pub(crate) async fn sign_next(
 
 /// The next manifest's refs, `HEAD`, upstream and mirrors, without packs.
 ///
-/// A plain sign publishes the local branches and tags. A sign with
-/// `--update`/`--delete` (a push) changes only those refs of `previous`.
+/// A plain sign publishes the local branches and tags [`published_refs`]
+/// picks. A sign with `--update`/`--delete` (a push) changes only those refs
+/// of `previous`.
 fn refs_manifest(
     repo: &Repo,
     args: &SignArgs,
     previous: Option<&SignedManifest>,
+    out: &mut dyn Write,
 ) -> anyhow::Result<Manifest> {
     let mut manifest = Manifest::new();
     let mut head = None;
@@ -186,7 +188,7 @@ fn refs_manifest(
             manifest.insert_ref(name, id)?;
         }
     } else {
-        for (name, id) in repo.refs(PUBLISHED_REFS)? {
+        for (name, id) in published_refs(repo, args.all, previous, out)? {
             manifest.insert_ref(name, id)?;
         }
     }
@@ -226,6 +228,75 @@ pub(crate) fn address(signed: &SignedManifest) -> RemoteUrl {
         key: signed.public_key(),
         salt: signed.salt().to_vec(),
     }
+}
+
+/// The local branches and tags a plain sign publishes. With `all`, every
+/// one. Otherwise the previous manifest's, the current branch, branches a
+/// remote has, and tags on any of those, so work that exists only here
+/// stays private: a published pack can't be recalled.
+fn published_refs(
+    repo: &Repo,
+    all: bool,
+    previous: Option<&SignedManifest>,
+    out: &mut dyn Write,
+) -> anyhow::Result<Vec<(RefName, ObjectId)>> {
+    let local = repo.refs(PUBLISHED_REFS)?;
+    if all {
+        return Ok(local);
+    }
+    let mut wanted: BTreeSet<String> = previous
+        .map(|previous| {
+            previous
+                .manifest()
+                .refs()
+                .keys()
+                .map(|name| name.as_str().to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(head) = repo.head_target()? {
+        wanted.insert(head.as_str().to_owned());
+    }
+    // refs/remotes/<remote>/<branch> means the remote has refs/heads/<branch>.
+    for (name, _) in repo.refs(&["refs/remotes"])? {
+        if let Some((_, branch)) = name
+            .as_str()
+            .strip_prefix("refs/remotes/")
+            .and_then(|rest| rest.split_once('/'))
+        {
+            wanted.insert(format!("refs/heads/{branch}"));
+        }
+    }
+    let tips: BTreeSet<ObjectId> = local
+        .iter()
+        .filter(|(name, _)| {
+            name.as_str().starts_with("refs/heads/") && wanted.contains(name.as_str())
+        })
+        .map(|(_, id)| *id)
+        .collect();
+    for tip in &tips {
+        for (name, _) in repo.refs_merged_into(&["refs/tags"], tip)? {
+            wanted.insert(name.as_str().to_owned());
+        }
+    }
+    let (published, skipped): (Vec<_>, Vec<_>) = local
+        .into_iter()
+        .partition(|(name, _)| wanted.contains(name.as_str()));
+    let names = |refs: &[(RefName, ObjectId)]| {
+        refs.iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    writeln!(out, "Publishing {}.", names(&published))?;
+    if !skipped.is_empty() {
+        writeln!(
+            out,
+            "Not publishing refs that exist only here: {} (`--all` publishes them).",
+            names(&skipped)
+        )?;
+    }
+    Ok(published)
 }
 
 fn print_address(signed: &SignedManifest, out: &mut dyn Write) -> anyhow::Result<()> {

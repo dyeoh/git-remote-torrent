@@ -162,6 +162,10 @@ key and run `git torrent adopt` (with `--name` if you used one) in a **full** cl
    in a scratch repository.
 4. Only then does it save the manifest, so `sign` and `git push` continue the chain.
 
+`--manifest <file>` adopts from a copy of the signed manifest when the DHT has nothing
+newer, for example after it expired. `--allow-new` succeeds without adopting when nothing
+is published yet; [the GitHub Action](publish-from-ci.md) uses both.
+
 Afterwards, publish only from the new machine. `sign` refuses shallow clones, because
 their packs would be missing history. To publish the same code from several machines, give each its own name
 (`--name`) or key.

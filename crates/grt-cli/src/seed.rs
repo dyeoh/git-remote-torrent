@@ -114,7 +114,7 @@ async fn seed(
             out,
             "Seeding {} pack(s) of {} on {listen}.",
             signed.manifest().packs().len(),
-            address(&signed)
+            sign::address(&signed)
         )?;
         publish(&dht, &signed).await?;
         writeln!(
@@ -143,7 +143,7 @@ async fn seed(
             _ = republish.tick() => {
                 for served in &served {
                     if let Err(error) = dht.publish(&served.current, None).await {
-                        writeln!(out, "warning: republishing {} failed: {error}", address(&served.current))?;
+                        writeln!(out, "warning: republishing {} failed: {error}", sign::address(&served.current))?;
                     }
                 }
                 republish_others(&dht, &args.republish, out).await?;
@@ -185,7 +185,7 @@ async fn publish_newer(
                 out,
                 "Published manifest #{} of {} ({} pack(s)).",
                 next.seq().get(),
-                address(&next),
+                sign::address(&next),
                 next.manifest().packs().len()
             )?,
             // Republishing the loser would fight the other machine.
@@ -196,7 +196,7 @@ async fn publish_newer(
                      published to this address meanwhile ({reason}). Only one machine \
                      can publish an address; no longer serving it.",
                     next.seq().get(),
-                    address(&next)
+                    sign::address(&next)
                 )?;
                 lost.push(index);
                 continue;
@@ -242,13 +242,6 @@ async fn republish_others(
         }
     }
     Ok(())
-}
-
-fn address(signed: &SignedManifest) -> RemoteUrl {
-    RemoteUrl::Swarm {
-        key: signed.public_key(),
-        salt: signed.salt().to_vec(),
-    }
 }
 
 /// How often the cached manifest is checked for one signed by `git push`.

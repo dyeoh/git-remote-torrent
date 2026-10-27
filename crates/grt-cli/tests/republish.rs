@@ -9,7 +9,7 @@ use grt_swarm::ManifestDht;
 use mainline::Testnet;
 use tempfile::TempDir;
 
-fn republish(bootstrap: &[String], addresses: &[String]) -> std::process::Output {
+fn republish(bootstrap: &[String], args: &[String]) -> std::process::Output {
     let dir = TempDir::new().expect("create temp dir");
     let mut command = Command::new(env!("CARGO_BIN_EXE_git-torrent"));
     command
@@ -19,7 +19,7 @@ fn republish(bootstrap: &[String], addresses: &[String]) -> std::process::Output
         .env("GIT_CONFIG_GLOBAL", dir.path().join("gitconfig"))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .arg("republish")
-        .args(addresses);
+        .args(args);
     for node in bootstrap {
         command.args(["--dht-bootstrap", node]);
     }
@@ -84,5 +84,52 @@ async fn anyone_can_republish_a_manifest() {
             && String::from_utf8_lossy(&output.stderr)
                 .contains("only be published again by its publisher"),
         "an address with nothing published cannot be revived"
+    );
+
+    // A copy revives an address the DHT no longer holds.
+    let copy_dir = TempDir::new().expect("create temp dir");
+    let key = PublisherKey::generate().expect("key");
+    let old = key.sign(&manifest, Seq::new(1), b"").expect("sign");
+    let copy = copy_dir.path().join("manifest");
+    std::fs::write(&copy, old.encode()).expect("write copy");
+    let args = vec![
+        "--manifest".to_owned(),
+        copy.to_str().expect("UTF-8").to_owned(),
+    ];
+    let bootstrap = testnet.bootstrap.clone();
+    let revive = args.clone();
+    let output = tokio::task::spawn_blocking(move || republish(&bootstrap, &revive))
+        .await
+        .expect("join");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success()
+            && stdout.contains("Republished manifest #1 of")
+            && stdout.contains("from its copy"),
+        "revived from the copy:\n{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let revived = dht
+        .resolve(&key.public_key(), b"")
+        .await
+        .expect("resolve")
+        .expect("published");
+    assert_eq!(revived, old);
+
+    // An old copy never replaces the newer manifest on the DHT.
+    let newer = key.sign(&manifest, Seq::new(2), b"").expect("sign");
+    dht.publish(&newer, Some(Seq::new(1)))
+        .await
+        .expect("publish #2");
+    let bootstrap = testnet.bootstrap.clone();
+    let output = tokio::task::spawn_blocking(move || republish(&bootstrap, &args))
+        .await
+        .expect("join");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success()
+            && stdout.contains("Republished manifest #2 of")
+            && !stdout.contains("from its copy"),
+        "the newer published manifest wins:\n{stdout}"
     );
 }

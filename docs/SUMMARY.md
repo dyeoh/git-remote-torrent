@@ -8,6 +8,7 @@
 # How-to guides
 - [Set up keys and trust](how-to/keys-and-trust.md)
 - [Mirror packs over HTTP](how-to/http-mirrors.md)
+- [Publish from CI](how-to/publish-from-ci.md)
 - [Run as pure P2P](how-to/pure-p2p.md)
 
 # Reference

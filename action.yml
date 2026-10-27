@@ -1,0 +1,87 @@
+name: git-remote-torrent
+description: >-
+  Sign the pushed refs, mirror their packs, and publish the signed manifest to the
+  BitTorrent DHT, with no machine left running. Or keep it published (republish).
+author: dyeoh
+branding:
+  icon: share-2
+  color: green
+
+inputs:
+  command:
+    description: >-
+      `publish` signs the pushed refs, uploads the packs and publishes the manifest.
+      `republish` keeps the last published manifest on the DHT (run it on a schedule);
+      it needs no key and no checkout.
+    default: publish
+  signing-key:
+    description: >-
+      The publisher's OpenSSH Ed25519 private key, unencrypted, from a secret. Required
+      by `publish`.
+    default: ""
+  name:
+    description: Publish under `torrent://<key>/<name>` instead of `torrent://<key>`.
+    default: ""
+  refs:
+    description: >-
+      Refs to publish at their current value, separated by spaces or newlines. Other
+      refs keep the value of the previous manifest.
+    default: ${{ github.ref }}
+  release:
+    description: >-
+      The GitHub release of this repository that serves the packs and a copy of the
+      signed manifest. Created if missing. Requires a public repository.
+    default: torrent-packs
+  mirror:
+    description: >-
+      Base URL of your own mirror, instead of the release. Then `upload-command` must
+      upload every file in `$GIT_TORRENT_PACKS` to it, keeping the file names.
+    default: ""
+  upload-command:
+    description: Shell command that uploads `$GIT_TORRENT_PACKS` to `mirror`.
+    default: ""
+  version:
+    description: >-
+      The git-remote-torrent release to run, such as `v0.4.0`. Defaults to the tag this
+      action is used at. `source` builds the action's own checkout instead.
+    default: ""
+  dht-bootstrap:
+    description: Join a private DHT through these nodes (`host:port`, space-separated).
+    default: ""
+  github-token:
+    description: Token for the release and for verifying the binary's attestation.
+    default: ${{ github.token }}
+
+outputs:
+  address:
+    description: The `torrent://` address the manifest is published at.
+    value: ${{ steps.run.outputs.address }}
+  seq:
+    description: The published manifest's sequence number.
+    value: ${{ steps.run.outputs.seq }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install git-remote-torrent
+      shell: bash
+      run: '"$GITHUB_ACTION_PATH/action/install.sh"'
+      env:
+        VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        SOURCE_REPOSITORY: ${{ github.action_repository || 'dyeoh/git-remote-torrent' }}
+        GH_TOKEN: ${{ inputs.github-token }}
+    - id: run
+      name: ${{ inputs.command }}
+      shell: bash
+      run: '"$GITHUB_ACTION_PATH/action/run.sh"'
+      env:
+        COMMAND: ${{ inputs.command }}
+        SIGNING_KEY: ${{ inputs.signing-key }}
+        NAME: ${{ inputs.name }}
+        REFS: ${{ inputs.refs }}
+        RELEASE: ${{ inputs.release }}
+        MIRROR: ${{ inputs.mirror }}
+        UPLOAD_COMMAND: ${{ inputs.upload-command }}
+        DHT_BOOTSTRAP: ${{ inputs.dht-bootstrap }}
+        GH_TOKEN: ${{ inputs.github-token }}

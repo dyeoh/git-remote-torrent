@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keeps repositories seeded and their manifests published, as a launchd agent.
+  Install:
+    cp dev.git-torrent.seed.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.git-torrent.seed.plist
+  Logs: /tmp/git-torrent-seed.log
+
+  Edit the paths: launchd does not expand ~ or $HOME. Unattended signing needs
+  a key without a passphrase; use a dedicated one, not your personal SSH key.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.git-torrent.seed</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/.cargo/bin/git-torrent</string>
+    <string>seed</string>
+    <string>--listen</string>
+    <string>0.0.0.0:6881</string>
+    <string>--repo</string>
+    <string>/Users/you/src/project</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/you/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/git-torrent-seed.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/git-torrent-seed.log</string>
+</dict>
+</plist>

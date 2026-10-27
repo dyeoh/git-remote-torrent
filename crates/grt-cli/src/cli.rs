@@ -102,7 +102,7 @@ pub(crate) enum TrustCommand {
     },
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Clone, Args)]
 pub(crate) struct SignArgs {
     /// The canonical upstream URL to record; defaults to `remote.origin.url`.
     #[arg(long)]
@@ -229,6 +229,15 @@ pub(crate) struct SeedArgs {
     /// your network can download packs. Changes the router's configuration.
     #[arg(long)]
     pub(crate) upnp: bool,
+    /// A repository to sign, seed and publish. Repeat to serve several from
+    /// one process; each keeps the name of its previous manifest. Defaults to
+    /// the current repository.
+    #[arg(long = "repo", value_name = "PATH")]
+    pub(crate) repos: Vec<PathBuf>,
+    /// Also keep this address's manifest published, for example a friend's
+    /// repository. Needs no key. Repeatable; works outside a repository.
+    #[arg(long = "republish", value_name = "ADDRESS")]
+    pub(crate) republish: Vec<RemoteUrl>,
     /// Seconds between manifest republishes.
     #[arg(long, default_value_t = 1800, hide = true)]
     pub(crate) republish_secs: u64,

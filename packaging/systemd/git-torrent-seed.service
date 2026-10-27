@@ -1,0 +1,28 @@
+# Keeps repositories seeded and their manifests published, as a systemd user
+# service. Install:
+#   cp git-torrent-seed.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now git-torrent-seed
+#   loginctl enable-linger "$USER"   # keep running while logged out
+# Logs: journalctl --user -u git-torrent-seed -f
+#
+# Unattended signing needs a key without a passphrase; use a dedicated one
+# (`git torrent key generate`), not your personal SSH key.
+
+[Unit]
+Description=git-remote-torrent seeder
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# Edit: one --repo per repository to serve, and any --republish addresses to
+# keep alive for others. A fixed port lets you forward it on your router.
+ExecStart=%h/.cargo/bin/git-torrent seed --listen 0.0.0.0:6881 \
+    --repo %h/src/project
+Environment=PATH=%h/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+# `seed` removes its pid files and stops cleanly on SIGINT.
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=default.target

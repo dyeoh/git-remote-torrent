@@ -220,12 +220,16 @@ fn refs_manifest(
     Ok(manifest)
 }
 
-fn print_address(signed: &SignedManifest, out: &mut dyn Write) -> anyhow::Result<()> {
-    let address = RemoteUrl::Swarm {
+/// The `torrent://` address `signed` is published at.
+pub(crate) fn address(signed: &SignedManifest) -> RemoteUrl {
+    RemoteUrl::Swarm {
         key: signed.public_key(),
         salt: signed.salt().to_vec(),
-    };
-    writeln!(out, "Address: {address}")?;
+    }
+}
+
+fn print_address(signed: &SignedManifest, out: &mut dyn Write) -> anyhow::Result<()> {
+    writeln!(out, "Address: {}", address(signed))?;
     for mirror in signed.manifest().mirrors() {
         writeln!(out, "Mirror: {mirror}")?;
     }
@@ -350,6 +354,14 @@ pub(crate) fn load(repo: &Repo) -> anyhow::Result<Option<SignedManifest>> {
             path = path.display()
         ),
     }
+}
+
+/// Reads and verifies a copy of a signed manifest, such as one CI stores
+/// next to its packs.
+pub(crate) fn read(path: &Path) -> anyhow::Result<SignedManifest> {
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    SignedManifest::decode(&bytes)
+        .with_context(|| format!("{} is not a valid signed manifest", path.display()))
 }
 
 pub(crate) fn save(repo: &Repo, signed: &SignedManifest) -> anyhow::Result<()> {

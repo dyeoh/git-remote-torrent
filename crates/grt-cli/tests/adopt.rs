@@ -198,3 +198,67 @@ async fn a_second_machine_adopts_the_chain_and_extends_it() {
         "nothing is half-adopted"
     );
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn adopts_from_a_copy_when_the_dht_has_nothing() {
+    let testnet = tokio::task::spawn_blocking(|| Testnet::builder(5).build().expect("testnet"))
+        .await
+        .expect("join");
+    let sandbox = Sandbox {
+        dir: TempDir::new().expect("create temp dir"),
+        bootstrap: testnet.bootstrap.clone(),
+    };
+    fs::write(
+        sandbox.path("gitconfig"),
+        "[user]\n\tname = T\n\temail = t@example.com\n[init]\n\tdefaultBranch = main\n\
+         [protocol \"file\"]\n\tallow = always\n",
+    )
+    .expect("gitconfig");
+    let base = serve(sandbox.path("www"));
+    let mirror = format!("{base}/packs");
+
+    // CI's first run: nothing published, so there is nothing to adopt.
+    sandbox.git(sandbox.dir.path(), &["init", "-q", "laptop"]);
+    sandbox.commit("laptop", "README");
+    sandbox.ok("laptop", &["key", "generate"]);
+    let output = tokio::task::block_in_place(|| sandbox.torrent("laptop", &["adopt"]));
+    assert!(
+        !output.status.success()
+            && String::from_utf8_lossy(&output.stderr).contains("nothing is published"),
+        "adopting nothing fails by default"
+    );
+    let out = tokio::task::block_in_place(|| sandbox.ok("laptop", &["adopt", "--allow-new"]));
+    assert!(out.contains("Nothing is published"), "{out}");
+
+    // Signed and mirrored with a copy of the manifest, but never published
+    // (or long expired).
+    sandbox.ok("laptop", &["sign", "--mirror", &mirror]);
+    let www = sandbox.path("www").join("packs");
+    sandbox.ok("laptop", &["export", www.to_str().expect("UTF-8")]);
+    let copy = www.join("manifest");
+    fs::copy(sandbox.path("laptop/.git/torrent/manifest"), &copy).expect("copy manifest");
+    let copy = copy.to_str().expect("UTF-8");
+
+    sandbox.git(sandbox.dir.path(), &["clone", "-q", "laptop", "runner"]);
+    let output = tokio::task::block_in_place(|| {
+        sandbox.torrent("runner", &["adopt", "--name", "other", "--manifest", copy])
+    });
+    assert!(
+        !output.status.success()
+            && String::from_utf8_lossy(&output.stderr).contains("is a manifest of"),
+        "a copy of another address is refused"
+    );
+    let out = tokio::task::block_in_place(|| {
+        sandbox.ok("runner", &["adopt", "--allow-new", "--manifest", copy])
+    });
+    assert!(
+        out.contains("Adopted manifest #1") && out.contains("1 pack(s)"),
+        "{out}"
+    );
+    sandbox.commit("runner", "FROM-CI");
+    let out = sandbox.ok("runner", &["sign"]);
+    assert!(
+        out.contains("Signed manifest #2") && out.contains("2 pack(s)"),
+        "the copy's chain continues: {out}"
+    );
+}

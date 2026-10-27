@@ -170,6 +170,15 @@ pub(crate) struct AdoptArgs {
     /// Join a private DHT through this node instead of the public one.
     #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]
     pub(crate) dht_bootstrap: Vec<String>,
+    /// A copy of the address's signed manifest (`.git/torrent/manifest`, as
+    /// CI keeps next to its packs), used when the DHT has nothing newer, for
+    /// example after it expired.
+    #[arg(long, value_name = "PATH")]
+    pub(crate) manifest: Option<PathBuf>,
+    /// Succeed without adopting anything if nothing is published at the
+    /// address yet, so the next `sign` starts its chain.
+    #[arg(long)]
+    pub(crate) allow_new: bool,
 }
 
 #[derive(Debug, Args)]
@@ -189,8 +198,12 @@ pub(crate) struct VerifyMirrorArgs {
 #[derive(Debug, Args)]
 pub(crate) struct RepublishArgs {
     /// `torrent://<key>[/<name>]` addresses to keep alive.
-    #[arg(required = true, value_name = "ADDRESS")]
+    #[arg(required_unless_present = "manifests", value_name = "ADDRESS")]
     pub(crate) addresses: Vec<RemoteUrl>,
+    /// A copy of a signed manifest, published again if the DHT has nothing
+    /// newer for its address, which revives an expired one. Repeatable.
+    #[arg(long = "manifest", value_name = "PATH")]
+    pub(crate) manifests: Vec<PathBuf>,
     /// Join a private DHT through this node instead of the public one.
     /// Repeat for several nodes.
     #[arg(long = "dht-bootstrap", value_name = "HOST:PORT")]

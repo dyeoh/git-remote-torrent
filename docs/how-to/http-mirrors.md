@@ -76,4 +76,9 @@ republish on a schedule. This needs no key, so any machine can do it:
 
 ```sh
 git torrent republish torrent://<key>[/<name>]
+git torrent republish --manifest manifest   # or from a copy of the signed manifest
 ```
+
+A copy of `.git/torrent/manifest` kept next to the packs also revives an address after it
+expired, because the signed item can be stored again as it is. An older copy never
+replaces a newer manifest. [Publish from CI](publish-from-ci.md) automates all of this.

@@ -25,14 +25,46 @@ pub(crate) fn run(args: &AdoptArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let signed = runtime
-        .block_on(async {
-            let dht = ManifestDht::connect(&args.dht_bootstrap)?;
-            dht.resolve(&key.public_key(), args.name.as_bytes()).await
-        })?
-        .with_context(|| {
-            format!("nothing is published at {address}, which is your key's address; run `git torrent sign` to start one")
-        })?;
+    let from_dht = runtime.block_on(async {
+        let dht = ManifestDht::connect(&args.dht_bootstrap)?;
+        dht.resolve(&key.public_key(), args.name.as_bytes()).await
+    })?;
+    let from_file = args.manifest.as_deref().map(sign::read).transpose()?;
+    if let Some(copy) = &from_file
+        && (copy.public_key() != key.public_key() || copy.salt() != args.name.as_bytes())
+    {
+        bail!(
+            "{} is a manifest of {}, not of {address}",
+            args.manifest.as_deref().unwrap_or(Path::new("")).display(),
+            sign::address(copy)
+        );
+    }
+    let signed = match (from_dht, from_file) {
+        (Some(published), Some(copy))
+            if copy.seq() == published.seq() && copy.value() != published.value() =>
+        {
+            bail!(
+                "the DHT has a different manifest #{} than the copy; another machine is \
+                 publishing with this key and name",
+                published.seq().get()
+            )
+        }
+        // An expired or not yet republished address: the copy is newer.
+        (Some(published), Some(copy)) if copy.seq() > published.seq() => copy,
+        (Some(published), _) => published,
+        (None, Some(copy)) => copy,
+        (None, None) if args.allow_new => {
+            writeln!(
+                out,
+                "Nothing is published at {address} yet; `git torrent sign` starts its chain."
+            )?;
+            return Ok(());
+        }
+        (None, None) => bail!(
+            "nothing is published at {address}, which is your key's address; run \
+             `git torrent sign` to start one"
+        ),
+    };
     if let Some(local) = sign::load(&repo)?
         && local.public_key() == signed.public_key()
         && local.salt() == signed.salt()

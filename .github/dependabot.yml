@@ -10,3 +10,6 @@ updates:
     directory: /
     schedule: { interval: weekly }
     commit-message: { prefix: "ci" }
+    ignore:
+      # The MSRV job pins the minimum supported Rust version on purpose.
+      - dependency-name: dtolnay/rust-toolchain

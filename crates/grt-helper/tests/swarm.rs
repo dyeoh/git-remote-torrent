@@ -462,8 +462,7 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
     );
     assert!(
         stderr.contains("the upstream is unavailable")
-            && stderr
-                .contains("Fetched 1 pack(s) of manifest #1 from the swarm, 1 from HTTP mirrors"),
+            && stderr.contains("Fetched 1 pack(s) of manifest #1 from HTTP mirrors."),
         "the pack came from the mirror the manifest lists:\n{stderr}"
     );
     assert_eq!(clone_head(&sandbox), first, "cloned from the mirror");

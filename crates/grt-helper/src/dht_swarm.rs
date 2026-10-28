@@ -450,13 +450,13 @@ impl Swarm for DhtSwarm {
             fs::create_dir_all(dir)?;
         }
         fs::write(&path, manifest.encode())?;
-        let mirrored = if fetched.from_mirrors == 0 {
-            String::new()
-        } else {
-            format!(", {} from HTTP mirrors", fetched.from_mirrors)
+        let source = match (fetched.from_peers, fetched.from_mirrors) {
+            (_, 0) => " from the swarm".to_owned(),
+            (0, _) => " from HTTP mirrors".to_owned(),
+            (peers, mirrors) => format!(": {peers} from peers, {mirrors} from HTTP mirrors"),
         };
         eprintln!(
-            "Fetched {} pack(s) of manifest #{} from the swarm{mirrored}.",
+            "Fetched {} pack(s) of manifest #{}{source}.",
             fetched.from_peers + fetched.from_mirrors,
             manifest.seq().get()
         );

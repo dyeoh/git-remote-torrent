@@ -16,6 +16,8 @@ body = """
 trim = true
 
 [git]
+# Releases only: the CI action also tags `torrent-packs` for its pack release.
+tag_pattern = "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
 conventional_commits = true
 filter_unconventional = true
 protect_breaking_commits = true

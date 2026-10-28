@@ -16,6 +16,7 @@ signed with the publisher's Ed25519 key. It is implemented in `grt-core`
 | `head` | bytes | no | The ref `HEAD` points to. It must be a key of `refs`. |
 | `up` | bytes (UTF-8) | no | The canonical upstream URL. |
 | `ws` | list of bytes (UTF-8) | no | Base URLs of HTTP mirrors serving each pack as `<base>/<infohash>.pack`. See [ADR-0007](../adr/0007-http-mirrors-instead-of-bep19.md). |
+| `t` | integer | no | When the publisher signed the manifest, in seconds since the Unix epoch, by the publisher's clock. Written since 0.4; clients show a manifest's age and warn about old ones (see [Freshness](#freshness)). |
 
 Keys are short because the encoded value, including its byte-string length prefix (see
 [Signature](#signature)), must fit in **1000 bytes**, the BEP 44 limit. That allows
@@ -35,11 +36,23 @@ Every manifest comes from an untrusted peer. Readers reject it when:
 - `packs2` is present but isn't a multiple of 32 bytes, or doesn't have one entry per
   pack in `packs`
 - `head` names a ref that isn't in `refs`
+- `t` is present but isn't a non-negative integer
 - a `ws` entry isn't an `http://` or `https://` URL, is longer than 200 bytes, or
   contains whitespace
 
 Readers **ignore unknown keys**, so later minor versions can add fields without breaking
 older clients.
+
+## Freshness
+
+`seq` orders manifests, but it can't tell a new client whether the manifest it was given
+is the newest. A hostile DHT node can serve an older one that is still validly signed.
+`t` is covered by the signature, so it can't be changed without the key. When refs come
+from a manifest, the helper prints its age (`note: manifest #12 was signed 3 days ago`).
+When it does so because the upstream is unavailable and the manifest is more than 30 days
+old, it also warns that a newer one may exist. A repository that hasn't changed in 30 days
+draws the same warning: `t` records when refs were signed, not that the publisher is still
+around. `git torrent status` shows the time too.
 
 ## Signature
 

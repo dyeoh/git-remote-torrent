@@ -68,7 +68,9 @@ pub(crate) async fn sign_next(
         Some(previous) => previous.seq().next()?,
         None => Seq::new(1),
     };
-    let sign = |manifest: &Manifest| key.sign(manifest, seq, args.name.as_bytes());
+    // The signed time lets cloners judge how stale a manifest is (threat model M3).
+    let now = unix_now()?;
+    let sign = |manifest: &Manifest| key.sign(&at(manifest, Some(now)), seq, args.name.as_bytes());
 
     let mut signed = None;
     // A chain signed before 0.4 has no SHA-256 hashes, so it is rebuilt once.
@@ -86,7 +88,7 @@ pub(crate) async fn sign_next(
     // sequence number, so restarting a seeder doesn't churn the address.
     if chain == Chain::Extend
         && let (Some(previous), Some(packs)) = (&previous, &previous_chain)
-        && with_packs(&refs, packs) == *previous.manifest()
+        && with_packs(&refs, packs) == at(previous.manifest(), None)
     {
         writeln!(
             out,
@@ -305,6 +307,22 @@ fn print_address(signed: &SignedManifest, out: &mut dyn Write) -> anyhow::Result
         writeln!(out, "Mirror: {mirror}")?;
     }
     Ok(())
+}
+
+/// `manifest` with `signed_at` as its time of signing; `None` leaves only
+/// its content, to compare.
+fn at(manifest: &Manifest, signed_at: Option<u64>) -> Manifest {
+    let mut manifest = manifest.clone();
+    manifest.set_signed_at(signed_at);
+    manifest
+}
+
+/// Seconds since the Unix epoch.
+pub(crate) fn unix_now() -> anyhow::Result<u64> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("the system clock is before 1970")?
+        .as_secs())
 }
 
 /// `refs` with `packs` as its chain.

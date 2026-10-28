@@ -3,6 +3,31 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.4.0] - 2026-10-28
+
+### Added
+- **BREAKING:** SHA-256 for every pack via hybrid v1/v2 torrents (#35)
+- Git torrent republish keeps any repository findable (#38)
+- Adopt an address on a new machine, and refuse shallow signs (#39)
+- Verify-mirror and publish, for publishing without seeding (#40)
+- Pure P2P as a first-class mode: seed many repos, republish others, service files (#42)
+- Publish from GitHub Actions, with packs in a release (#43)
+- Sign the time of signing into manifests, and warn about old ones (#50)
+
+### Documentation
+- **BREAKING:** Prior art in the README, scope (ADR-0009), two modes; remove the git-torrentd stub (#41)
+- Threat model for keys, the DHT, peers and mirrors (#44)
+- Key succession through a pre-committed successor key (#51)
+
+### Fixed
+- Retry DHT lookups that find nothing (#37)
+- Mirrors named by a manifest may only reach public addresses (#45)
+- Check the publisher key before serving refs from a manifest (#46)
+- A plain sign publishes only refs that are already shared (#47)
+- Encrypt generated keys with a passphrase, and wipe key material (#48)
+- Cap pack size from peers, and let LAN multicast be turned off (#52)
+- Count only vX.Y.Z tags as releases in git-cliff (#53)
+- Say plainly where fetched packs came from (#54)
 ## [0.3.0] - 2026-10-26
 
 ### Added

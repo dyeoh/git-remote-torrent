@@ -15,7 +15,7 @@ use crate::error::Error;
 use crate::pack_swarm::verify_pack;
 
 /// Largest pack accepted from a mirror, so a hostile one cannot fill the disk.
-pub const MAX_MIRROR_PACK_LEN: u64 = 4 << 30;
+pub const MAX_MIRROR_PACK_LEN: u64 = crate::MAX_PACK_LEN;
 
 /// Who chose a mirror, which decides the addresses it may connect to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

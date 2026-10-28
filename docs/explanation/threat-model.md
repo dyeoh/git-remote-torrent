@@ -46,8 +46,8 @@ a remote uses.
   ([ADR-0008](../adr/0008-hybrid-torrents-and-sha256.md)). Then git runs
   `index-pack --strict` (fsck on every object). Every wanted ref must then be present, and
   git runs its own connectivity check.
-- **Mirrors.** Mirrors get no more trust than peers: the same two hashes, and a 4 GiB cap
-  per pack.
+- **Mirrors.** Mirrors get no more trust than peers: the same two hashes, and the same
+  4 GiB cap per pack.
 - **Argument injection.** Upstream URLs starting with `-` are rejected. Push and fetch
   arguments must be `HEAD` or `refs/…`.
 - **Key storage.** The path of the signing key is read only from **global** git config, so
@@ -69,8 +69,8 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 | M2 | A plain `sign` publishes every local branch and tag | Fixed in 0.4 |
 | M3 | Fresh clones can be served a stale manifest | Mitigated in 0.4 |
 | M4 | Generated keys are unencrypted; secrets stay in memory | Fixed in 0.4 |
-| L1 | Pack size from peers is not capped | Open |
-| L2 | Privacy: IPs, interests and LAN multicast | Open: documented below |
+| L1 | Pack size from peers is not capped | Fixed in 0.4 |
+| L2 | Privacy: IPs, interests and LAN multicast | Documented; LAN multicast can be turned off in 0.4 |
 | L3 | DHT bootstrap is the easiest point for an eclipse | Documented below |
 | L4 | CI publishing | Addressed by the action's design |
 
@@ -173,7 +173,8 @@ key in a secret (see L4).
 
 Mirror downloads stop at 4 GiB, but a pack from peers is as large as its signed torrent
 says. Abusing it needs the publisher's key, since the infohash is signed.
-**Fix:** apply the same cap once the torrent metadata arrives.
+**Fixed:** a fetch from peers asks for the torrent's metadata first and refuses a pack
+larger than 4 GiB before downloading any of it, as mirrors do.
 
 ### L2. Privacy
 
@@ -185,7 +186,8 @@ says. Abusing it needs the publisher's key, since the infohash is signed.
   being fetched or seeded on your LAN.
 - Version 1 is for **public repositories**: anything signed into a manifest is public.
 
-**Fix:** a `torrent.localDiscovery=false` setting. Use a private DHT
+**Partly fixed:** `torrent.localDiscovery=false` (and `seed --no-local-discovery`) turns
+off the LAN multicast. The rest is inherent to a public DHT: use a private DHT
 (`torrent.dhtBootstrap`) or mirrors only (`torrent.peerDht=false`) where this exposure is
 unacceptable.
 

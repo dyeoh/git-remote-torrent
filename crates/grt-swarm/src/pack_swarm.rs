@@ -6,12 +6,17 @@ use std::time::Duration;
 
 use grt_core::{InfoHash, InfoHashV2};
 use librqbit::{
-    AddTorrent, AddTorrentOptions, DhtSessionConfig, ListenerMode, ListenerOptions, Session,
-    SessionOptions,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, DhtSessionConfig, ListenerMode,
+    ListenerOptions, Session, SessionOptions,
 };
 
 use crate::error::Error;
 use crate::hybrid::{HybridTorrent, PACK_FILE, hybrid_torrent};
+
+/// Largest pack accepted from peers or mirrors, in bytes: 4 GiB. A pack's
+/// infohash is signed, so only the publisher could make one larger, but a
+/// cloner shouldn't fill their disk on the publisher's say-so.
+pub const MAX_PACK_LEN: u64 = 4 << 30;
 
 /// How a [`PackSwarm`] connects to peers.
 #[derive(Debug, Clone)]
@@ -19,9 +24,12 @@ use crate::hybrid::{HybridTorrent, PACK_FILE, hybrid_torrent};
 pub struct SwarmConfig {
     /// TCP address to accept peers on.
     pub listen: SocketAddr,
-    /// Find peers through the Mainline DHT, and on the local network
-    /// through multicast Local Service Discovery (BEP 14). Off for tests.
+    /// Find peers through the Mainline DHT. Off for tests.
     pub dht: bool,
+    /// While `dht` is on, also find peers on the local network through
+    /// multicast Local Service Discovery (BEP 14), which tells the LAN which
+    /// packs are fetched or seeded.
+    pub local_discovery: bool,
     /// Ask the router to forward the listen port (UPnP), so peers outside a
     /// NAT can connect. Changes the router's configuration, so off by default.
     pub upnp: bool,
@@ -32,6 +40,7 @@ impl Default for SwarmConfig {
         SwarmConfig {
             listen: SocketAddr::from(([0, 0, 0, 0], 0)),
             dht: true,
+            local_discovery: true,
             upnp: false,
         }
     }
@@ -62,7 +71,7 @@ impl PackSwarm {
             disable_trackers: true,
             // Peers found on the DHT are listed under their public address,
             // which machines behind the same NAT often cannot connect back to.
-            disable_local_service_discovery: !config.dht,
+            disable_local_service_discovery: !(config.dht && config.local_discovery),
             fastresume: false,
             persistence: None,
             listen: Some(ListenerOptions {
@@ -124,12 +133,14 @@ impl PackSwarm {
     /// `out_dir`, asking `peers` first, and returns the path of the pack file.
     ///
     /// The torrent's metadata comes from the peers (BEP 9), so the infohash
-    /// from a manifest is all that is needed.
+    /// from a manifest is all that is needed. It is checked before anything
+    /// else is downloaded: a pack larger than [`MAX_PACK_LEN`] is refused.
     ///
     /// # Errors
     ///
     /// Returns [`Error::Timeout`] if the download does not finish within
-    /// `timeout`, or [`Error::Torrent`] if the engine fails.
+    /// `timeout`, [`Error::TooLarge`] if the pack exceeds [`MAX_PACK_LEN`],
+    /// or [`Error::Torrent`] if the engine fails.
     pub async fn fetch(
         &self,
         pack: InfoHash,
@@ -142,21 +153,45 @@ impl PackSwarm {
         // For a bare infohash, add_torrent itself fetches the metadata from
         // peers, so the deadline must cover it as well as the download.
         let download = async {
-            let handle = self
+            // First only the metadata, to check the size before downloading.
+            let listed = self
                 .session
                 .add_torrent(
                     AddTorrent::from_url(pack.to_string()),
                     Some(AddTorrentOptions {
-                        overwrite: true,
-                        output_folder: Some(folder.to_string_lossy().into_owned()),
+                        list_only: true,
                         initial_peers: Some(peers.to_vec()),
                         ..Default::default()
                     }),
                 )
                 .await
-                .map_err(torrent_error)?
-                .into_handle()
-                .ok_or_else(|| Error::Torrent("fetch returned no torrent handle".to_owned()))?;
+                .map_err(torrent_error)?;
+            let handle = match listed {
+                AddTorrentResponse::ListOnly(listed) => {
+                    let len = listed.info.lengths().total_length();
+                    if len > MAX_PACK_LEN {
+                        return Err(Error::TooLarge { pack, len });
+                    }
+                    let mut known_peers = peers.to_vec();
+                    known_peers.extend(listed.seen_peers);
+                    self.session
+                        .add_torrent(
+                            AddTorrent::from_bytes(listed.torrent_bytes),
+                            Some(AddTorrentOptions {
+                                overwrite: true,
+                                output_folder: Some(folder.to_string_lossy().into_owned()),
+                                initial_peers: Some(known_peers),
+                                ..Default::default()
+                            }),
+                        )
+                        .await
+                        .map_err(torrent_error)?
+                        .into_handle()
+                }
+                // This session already seeds or fetches the pack.
+                other => other.into_handle(),
+            }
+            .ok_or_else(|| Error::Torrent("fetch returned no torrent handle".to_owned()))?;
             handle.wait_until_completed().await.map_err(torrent_error)
         };
         tokio::time::timeout(timeout, download)

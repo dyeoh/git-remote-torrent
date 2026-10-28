@@ -248,6 +248,9 @@ pub(crate) struct SeedArgs {
     /// listen address.
     #[arg(long)]
     pub(crate) no_peer_dht: bool,
+    /// Don't announce packs to the local network by multicast (BEP 14).
+    #[arg(long)]
+    pub(crate) no_local_discovery: bool,
     /// Ask your router to forward the listen port (UPnP), so peers outside
     /// your network can download packs. Changes the router's configuration.
     #[arg(long)]

@@ -15,4 +15,4 @@ pub use crate::error::Error;
 pub use crate::hybrid::{HybridTorrent, hybrid_torrent, piece_length};
 pub use crate::manifest_dht::{ManifestDht, RESOLVE_ATTEMPTS};
 pub use crate::mirror::{MAX_MIRROR_PACK_LEN, MirrorSource, fetch_from_mirror};
-pub use crate::pack_swarm::{PackSwarm, SwarmConfig, hashes_of, verify_pack};
+pub use crate::pack_swarm::{MAX_PACK_LEN, PackSwarm, SwarmConfig, hashes_of, verify_pack};

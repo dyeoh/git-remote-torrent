@@ -18,6 +18,14 @@ pub enum Error {
     /// An HTTP mirror failed or served the wrong bytes.
     #[error("mirror: {0}")]
     Mirror(String),
+    /// A pack's torrent is larger than [`crate::MAX_PACK_LEN`].
+    #[error("pack {pack} is {len} bytes, more than the 4 GiB limit")]
+    TooLarge {
+        /// The pack's v1 infohash.
+        pack: grt_core::InfoHash,
+        /// Its length according to the torrent.
+        len: u64,
+    },
     /// A download did not finish in time.
     #[error("timed out fetching pack {0}")]
     Timeout(grt_core::InfoHash),

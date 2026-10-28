@@ -42,6 +42,9 @@ pub struct Settings {
     pub peers: Vec<SocketAddr>,
     /// Find pack peers on the DHT (`torrent.peerDht`, default true).
     pub peer_dht: bool,
+    /// Also find them on the local network by multicast, while `peer_dht`
+    /// is on (`torrent.localDiscovery`, default true).
+    pub local_discovery: bool,
     /// HTTP mirrors to try after peers, besides those the manifest lists
     /// (`torrent.mirror`).
     pub mirrors: Vec<String>,
@@ -68,6 +71,7 @@ impl Settings {
             })
             .collect::<Result<Vec<SocketAddr>, Error>>()?;
         let peer_dht = boolean("torrent.peerDht", true)?;
+        let local_discovery = boolean("torrent.localDiscovery", true)?;
         let allow_private_mirrors = boolean("torrent.allowPrivateMirrors", false)?;
         let timeout =
             match last("torrent.fetchTimeout")? {
@@ -90,6 +94,7 @@ impl Settings {
             bootstrap: grt_git::config_all("torrent.dhtBootstrap")?,
             peers,
             peer_dht,
+            local_discovery,
             mirrors,
             allow_private_mirrors,
             timeout,
@@ -217,6 +222,7 @@ impl DhtSwarm {
         } else {
             let mut config = SwarmConfig::default();
             config.dht = self.settings.peer_dht;
+            config.local_discovery = self.settings.local_discovery;
             Some(PackSwarm::start(&torrent_dir.join("fetch-session"), config).await?)
         };
         // With a mirror to fall back on, don't wait long for absent peers.

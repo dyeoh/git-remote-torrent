@@ -95,6 +95,7 @@ async fn seed(
     let mut config = SwarmConfig::default();
     config.listen = args.listen;
     config.dht = !args.no_peer_dht;
+    config.local_discovery = !args.no_local_discovery;
     config.upnp = args.upnp;
     let session = match repos.first() {
         Some((repo, _)) => repo.git_dir().join("torrent").join("session"),

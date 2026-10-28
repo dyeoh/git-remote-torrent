@@ -112,6 +112,7 @@ example, from another machine), it stops rather than overwrite it.
 | `--listen 0.0.0.0:6881` | Fixed address for peers to connect to; by default a random port |
 | `--dht-bootstrap HOST:PORT` | Join a private DHT instead of the public one (repeatable) |
 | `--no-peer-dht` | Don't announce packs on the BitTorrent DHT; peers must be given the listen address |
+| `--no-local-discovery` | Don't announce packs to the local network by multicast (BEP 14) |
 | `--upnp` | Ask your router to forward the listen port, so peers outside your network can connect |
 | `--repo PATH` | Serve this repository; repeat to serve several from one process (see [Run as pure P2P](pure-p2p.md)) |
 | `--republish ADDRESS` | Also keep another address's manifest published; needs no key |

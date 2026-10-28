@@ -63,7 +63,7 @@ Ranked by impact. Each fix is a separate change; the status column tracks them.
 
 | | Finding | Status |
 |---|---|---|
-| H1 | Key compromise is permanent | Open: design ADR planned |
+| H1 | Key compromise is permanent | Open: design in ADR-0010 |
 | H2 | The trust store is not consulted when fetching | Fixed in 0.4 |
 | M1 | Manifest mirrors make cloners send requests to any host | Fixed in 0.4 |
 | M2 | A plain `sign` publishes every local branch and tag | Fixed in 0.4 |
@@ -82,9 +82,14 @@ there again, because clients and DHT nodes keep the highest sequence number. Nor
 address say "this repository moved to another key".
 
 **Until then:** use a key for one address (or one CI job) only, never an SSH key reused
-everywhere, and encrypt it unless it lives in a CI secret. A key succession ADR will
-anchor "moved to key Y" in something the stolen key cannot forge, such as keys the
-publisher's forge account lists.
+everywhere, and encrypt it unless it lives in a CI secret.
+
+**Planned:** [ADR-0010](../adr/0010-key-succession.md). Each manifest commits to a
+successor key that is kept offline. Clients remember the first commitment they see, and
+follow the address to that key when it publishes a manifest naming the old one. A thief
+holding only the current key can't sign as the successor, and clients that have moved
+ignore the old address, even at `seq = i64::MAX`. Fresh clones made after a theft can
+fall back on keys in the trust store, including keys imported from the forge.
 
 ### H2. The trust store is not consulted when fetching
 

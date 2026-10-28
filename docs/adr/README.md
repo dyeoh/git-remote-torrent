@@ -15,3 +15,4 @@ edited. A later decision supersedes it with a new ADR.
 | [0007](0007-http-mirrors-instead-of-bep19.md) | HTTP mirrors verified by infohash, instead of BEP 19 web seeds | Accepted |
 | [0008](0008-hybrid-torrents-and-sha256.md) | Hybrid v1/v2 torrents: every pack verified with SHA-256 | Accepted |
 | [0009](0009-scope-forge-companion.md) | Scope: a forge companion, not a P2P forge | Accepted |
+| [0010](0010-key-succession.md) | Key succession: a pre-committed successor key | Proposed |

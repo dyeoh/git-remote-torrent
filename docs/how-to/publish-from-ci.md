@@ -82,7 +82,9 @@ Each `publish` run does the following:
 6. **Saves the copy** of the published manifest in the release, for the next run.
 
 `refs` takes patterns, like `git for-each-ref`. Publishing `main` and every tag on each run
-means a run cancelled by the concurrency group loses nothing. Deleting a branch or tag
+means a run cancelled by the concurrency group loses nothing. The tag of the release that
+holds the packs (`torrent-packs`) is never published, and is removed from manifests that
+have it. Deleting a branch or tag
 does not remove it from the manifest; sign the deletion from a machine with the key
 (`git torrent sign --delete <ref>`).
 

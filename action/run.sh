@@ -73,13 +73,21 @@ set -f
 read -r -d '' -a patterns <<< "$REFS" || true
 set +f
 updates=()
+# The release that holds the packs has a tag of its own; it is not a release
+# of the project, so it is never published, and removed if it was before.
+packs_tag=
+if [[ -z $MIRROR ]]; then
+  packs_tag="refs/tags/$RELEASE"
+  updates+=(--delete "$packs_tag")
+fi
 while read -r ref oid; do
+  [[ $ref == "$packs_tag" ]] && continue
   case $ref in
     refs/heads/* | refs/tags/*) updates+=(--update "$ref=$oid") ;;
     *) fail "$ref is not a branch or tag; run this action on push" ;;
   esac
 done < <(git for-each-ref --format='%(refname) %(objectname)' -- ${patterns[@]+"${patterns[@]}"})
-[[ ${#updates[@]} -gt 0 ]] || fail "no ref in this checkout matches \`refs\` ($REFS)"
+[[ " ${updates[*]} " == *" --update "* ]] || fail "no ref in this checkout matches \`refs\` ($REFS)"
 
 key="$work/signing-key"
 trap 'rm -f "$key"' EXIT

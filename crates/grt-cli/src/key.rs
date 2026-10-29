@@ -92,6 +92,21 @@ fn new_passphrase() -> anyhow::Result<Zeroizing<String>> {
     Ok(passphrase)
 }
 
+/// Fails unless the configured signing key can be loaded with no one there to
+/// type a passphrase, as a service must.
+pub(crate) fn require_unattended_key() -> anyhow::Result<()> {
+    let path = signing_key_path()?;
+    if read_openssh(&path)?.is_encrypted() {
+        bail!(
+            "{} is encrypted, and a service can't ask for its passphrase. Sign with a \
+             dedicated unencrypted key for this address (`git torrent key generate`), not \
+             your personal SSH key, or seed with only --follow, which signs nothing",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// The configured signing key's public half; never prompts.
 pub(crate) fn signing_public_key() -> anyhow::Result<PublicKey> {
     let path = signing_key_path()?;

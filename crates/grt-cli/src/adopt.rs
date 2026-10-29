@@ -1,21 +1,16 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
 
 use anyhow::{Context, bail, ensure};
-use grt_core::{InfoHash, InfoHashV2, RemoteUrl, SignedManifest};
+use grt_core::{RemoteUrl, SignedManifest};
 use grt_git::Repo;
-use grt_swarm::{
-    ManifestDht, MirrorSource, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack,
-};
+use grt_swarm::{ManifestDht, MirrorSource, SwarmConfig};
 
 use crate::cli::AdoptArgs;
+use crate::packs::{self, Peers};
 use crate::{key, sign};
-
-/// Deadline for each pack download.
-const PACK_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub(crate) fn run(args: &AdoptArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
     let repo = Repo::discover(cwd)?;
@@ -111,44 +106,24 @@ async fn adopt(
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
     let manifest = signed.manifest();
-    let mut mirrors: Vec<&str> = manifest.mirrors().iter().map(String::as_str).collect();
-    mirrors.extend(args.mirrors.iter().map(String::as_str));
-
-    let mut swarm = None;
-    let mut files = Vec::new();
-    for (index, &pack) in manifest.packs().iter().enumerate() {
-        let sha256 = manifest.packs_v2().map(|v2| v2[index]);
-        let file = match from_mirrors(&mirrors, pack, sha256, work).await {
-            Ok(file) => file,
-            Err(mut failures) => {
-                if swarm.is_none() {
-                    let mut config = SwarmConfig::default();
-                    config.dht = args.dht_bootstrap.is_empty();
-                    swarm = Some(PackSwarm::start(&work.join("session"), config).await?);
-                }
-                let swarm = swarm.as_ref().expect("started above");
-                let fetched = match swarm
-                    .fetch(pack, &args.peers, &work.join("peers"), PACK_TIMEOUT)
-                    .await
-                {
-                    Ok(file) => verify_pack(&file, pack, sha256).await.map(|()| file),
-                    Err(error) => Err(error),
-                };
-                match fetched {
-                    Ok(file) => file,
-                    Err(error) => {
-                        failures.push(format!("peers: {error}"));
-                        bail!("no source has pack {pack}: {}", failures.join("; "));
-                    }
-                }
-            }
-        };
-        writeln!(out, "Fetched pack {pack}.")?;
-        files.push((pack, file));
-    }
-    if let Some(swarm) = swarm {
-        swarm.stop().await;
-    }
+    // Your own key signed the manifest, so its mirrors are your choice.
+    let mirrors: Vec<(&str, MirrorSource)> = manifest
+        .mirrors()
+        .iter()
+        .chain(&args.mirrors)
+        .map(|mirror| (mirror.as_str(), MirrorSource::User))
+        .collect();
+    let mut config = SwarmConfig::default();
+    config.dht = args.dht_bootstrap.is_empty();
+    let mut peers = Peers::Lazy {
+        dir: work.join("session"),
+        config,
+        peers: &args.peers,
+        started: None,
+    };
+    let files = packs::download(manifest, |_| true, &mirrors, &mut peers, work, out).await;
+    peers.stop().await;
+    let files = files?;
 
     // The chain must rebuild every published ref by itself, oldest first.
     let scratch_dir = work.join("check.git");
@@ -180,24 +155,4 @@ async fn adopt(
         repo.index_pack(&stored)?;
     }
     Ok(())
-}
-
-/// The pack from the first mirror that serves it intact, or why each failed.
-async fn from_mirrors(
-    mirrors: &[&str],
-    pack: InfoHash,
-    sha256: Option<InfoHashV2>,
-    work: &Path,
-) -> Result<PathBuf, Vec<String>> {
-    let mut failures = Vec::new();
-    let dir = work.join("mirrors");
-    for mirror in mirrors {
-        // Your own key signed the manifest, so its mirrors are your choice.
-        match fetch_from_mirror(mirror, MirrorSource::User, pack, sha256, &dir, PACK_TIMEOUT).await
-        {
-            Ok(file) => return Ok(file),
-            Err(error) => failures.push(error.to_string()),
-        }
-    }
-    Err(failures)
 }

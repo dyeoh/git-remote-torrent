@@ -404,11 +404,11 @@ async fn write_next_pack(
 
 /// Where the pack with infohash `pack` is stored.
 pub(crate) fn pack_path(repo: &Repo, pack: InfoHash) -> PathBuf {
-    packs_dir(repo).join(pack.to_string()).join(PACK_FILE)
+    grt_swarm::stored_pack_path(&repo.git_dir().join("torrent"), pack)
 }
 
 fn packs_dir(repo: &Repo) -> PathBuf {
-    repo.git_dir().join("torrent").join("packs")
+    grt_swarm::packs_dir(&repo.git_dir().join("torrent"))
 }
 
 /// The canonical upstream from `remote.origin.url`, unwrapping `torrent::`.

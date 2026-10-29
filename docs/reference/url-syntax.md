@@ -52,6 +52,8 @@ or for one command with `git -c`.
 | `torrent.localDiscovery` | `true` | While `torrent.peerDht` is on, also find pack peers on the local network by multicast (BEP 14). Turn off to keep the LAN from seeing which packs you fetch |
 | `torrent.mirror` | none | Base URL of an HTTP mirror to try after peers, besides those the manifest lists; repeat for several |
 | `torrent.allowPrivateMirrors` | `false` | Let the manifest's mirrors connect to loopback and private addresses. Mirrors in `torrent.mirror` always may |
+| `torrent.keepPacks` | `false` | Keep each fetched pack in `.git/torrent/packs/`, so `git torrent seed --follow` serves it without downloading it again. Roughly doubles the disk the repository uses |
+| `torrent.seedHint` | `true` | After a fetch that downloaded packs, suggest `git torrent seed --follow`. Not shown while `torrent.keepPacks` is on |
 | `torrent.fetchTimeout` | `120` | Seconds allowed for resolving the manifest, and for each pack. When mirrors are available, peers get at most 30 seconds per pack before the mirrors are tried |
 
 ## Current support

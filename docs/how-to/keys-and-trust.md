@@ -116,6 +116,10 @@ example, from another machine), it stops rather than overwrite it.
 | `--upnp` | Ask your router to forward the listen port, so peers outside your network can connect |
 | `--repo PATH` | Serve this repository; repeat to serve several from one process (see [Run as pure P2P](pure-p2p.md)) |
 | `--republish ADDRESS` | Also keep another address's manifest published; needs no key |
+| `--follow REMOTE` | Seed the packs of a cloned remote's manifest and keep it published, picking up new ones; needs no key (see [Run as pure P2P](pure-p2p.md#help-keep-someone-elses-repository-available)) |
+| `--install` | Run this seed command as a service that starts at login (launchd on macOS, systemd on Linux), replacing any installed before |
+| `--uninstall` | Stop and remove that service |
+| `--print-service` | Print the service file `--install` would write, and change nothing |
 | `--mirror URL` | Sign an HTTP mirror of the packs into the manifest (repeatable); see [Mirror packs over HTTP](http-mirrors.md) |
 
 The signed manifest is cached at `.git/torrent/manifest` and is re-verified every time it

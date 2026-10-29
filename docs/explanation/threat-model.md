@@ -181,7 +181,8 @@ larger than 4 GiB before downloading any of it, as mirrors do.
 - DHT lookups and announces reveal your IP address and which addresses and packs you are
   interested in, to whichever nodes you contact. The same is true of every BitTorrent client.
 - Seeders accept connections on all interfaces (`0.0.0.0`) and announce what they hold.
-  UPnP port forwarding is opt-in (`--upnp`).
+  UPnP port forwarding is opt-in (`--upnp`). Cloners seed only when they choose to
+  (`seed --follow`); the remote helper suggests it but never starts it.
 - When DHT discovery is on, local service discovery (BEP 14) multicasts the infohashes
   being fetched or seeded on your LAN.
 - Version 1 is for **public repositories**: anything signed into a manifest is public.

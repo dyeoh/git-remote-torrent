@@ -1,13 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::os::fd::AsFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use std::{fs, io};
 
-use grt_core::{Manifest, ObjectId, PublicKey, RefName, SignedManifest};
+use grt_core::{InfoHash, Manifest, ObjectId, PublicKey, RefName, SignedManifest};
 use grt_git::Repo;
 use grt_swarm::{
     ManifestDht, MirrorSource, PackSwarm, SwarmConfig, fetch_from_mirror, verify_pack,
@@ -32,6 +31,20 @@ struct Fetched {
     from_mirrors: usize,
 }
 
+/// What a fetch that downloaded packs does to help the clone seed them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AfterFetch {
+    /// Keep each pack in `.git/torrent/packs/`, so `git torrent seed
+    /// --follow` serves it without downloading it again
+    /// (`torrent.keepPacks=true`).
+    KeepPacks,
+    /// Suggest `git torrent seed --follow` (the default).
+    Hint,
+    /// Neither (`torrent.seedHint=false`).
+    Nothing,
+}
+
 /// How the helper reaches the swarm, from git config (`torrent.*`).
 #[derive(Debug, Clone)]
 #[non_exhaustive]
@@ -51,6 +64,9 @@ pub struct Settings {
     /// Let the manifest's mirrors reach loopback and private addresses
     /// (`torrent.allowPrivateMirrors`, default false).
     pub allow_private_mirrors: bool,
+    /// What a fetch does to help this clone seed the repository
+    /// (`torrent.keepPacks`, `torrent.seedHint`).
+    pub after_fetch: AfterFetch,
     /// Deadline for resolving the manifest and for each pack
     /// (`torrent.fetchTimeout`, in seconds, default 120).
     pub timeout: Duration,
@@ -73,6 +89,13 @@ impl Settings {
         let peer_dht = boolean("torrent.peerDht", true)?;
         let local_discovery = boolean("torrent.localDiscovery", true)?;
         let allow_private_mirrors = boolean("torrent.allowPrivateMirrors", false)?;
+        let after_fetch = if boolean("torrent.keepPacks", false)? {
+            AfterFetch::KeepPacks
+        } else if boolean("torrent.seedHint", true)? {
+            AfterFetch::Hint
+        } else {
+            AfterFetch::Nothing
+        };
         let timeout =
             match last("torrent.fetchTimeout")? {
                 None => Duration::from_secs(120),
@@ -97,6 +120,7 @@ impl Settings {
             local_discovery,
             mirrors,
             allow_private_mirrors,
+            after_fetch,
             timeout,
         })
     }
@@ -294,6 +318,9 @@ impl DhtSwarm {
                     )));
                 };
                 repo.index_pack(&file)?;
+                if self.settings.after_fetch == AfterFetch::KeepPacks {
+                    keep(&torrent_dir, pack, &file)?;
+                }
                 fs::write(&marker, b"")?;
             }
             Ok::<Fetched, Error>(fetched)
@@ -310,14 +337,7 @@ impl DhtSwarm {
     }
 
     fn cache_path(&self, repo: &Repo) -> PathBuf {
-        let mut name = self.key.to_string();
-        if !self.salt.is_empty() {
-            name.push('.');
-            for byte in &self.salt {
-                let _ = write!(name, "{byte:02x}");
-            }
-        }
-        repo.git_dir().join("torrent").join("fetched").join(name)
+        grt_swarm::fetched_manifest_path(&repo.git_dir().join("torrent"), &self.key, &self.salt)
     }
 
     /// The newest remembered manifest for this address that still verifies:
@@ -460,6 +480,16 @@ impl Swarm for DhtSwarm {
             fetched.from_peers + fetched.from_mirrors,
             manifest.seq().get()
         );
+        if let Some(remote) = &self.remote
+            && fetched.from_peers + fetched.from_mirrors > 0
+            && self.settings.after_fetch == AfterFetch::Hint
+        {
+            eprintln!(
+                "hint: keep this repository available to others: \
+                 git torrent seed --follow {remote} --install\n\
+                 hint: (`git config torrent.seedHint false` hides this)"
+            );
+        }
         Ok(())
     }
 
@@ -581,6 +611,20 @@ fn last(key: &str) -> Result<Option<String>, Error> {
 }
 
 /// A boolean setting, `default` when unset.
+/// Moves the verified, indexed pack `file` into the pack store, where
+/// `git torrent seed --follow` serves it from.
+fn keep(torrent_dir: &Path, pack: InfoHash, file: &Path) -> Result<(), Error> {
+    let stored = grt_swarm::stored_pack_path(torrent_dir, pack);
+    if stored.exists() {
+        return Ok(());
+    }
+    if let Some(dir) = stored.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::rename(file, &stored)?;
+    Ok(())
+}
+
 fn boolean(key: &str, default: bool) -> Result<bool, Error> {
     match last(key)?.as_deref() {
         None => Ok(default),

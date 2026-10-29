@@ -233,6 +233,22 @@ pub(crate) struct ExportArgs {
     pub(crate) dir: PathBuf,
 }
 
+/// `seed` flags that manage the seeder service instead of seeding.
+#[derive(Debug, Args)]
+pub(crate) struct ServiceArgs {
+    /// Run this seed command as a service that starts at login and restarts
+    /// on failure (launchd on macOS, a systemd user service on Linux),
+    /// replacing any installed before.
+    #[arg(long, conflicts_with_all = ["uninstall", "print_service"])]
+    pub(crate) install: bool,
+    /// Stop and remove the installed service.
+    #[arg(long, conflicts_with = "print_service")]
+    pub(crate) uninstall: bool,
+    /// Print the service file `--install` would write, and change nothing.
+    #[arg(long)]
+    pub(crate) print_service: bool,
+}
+
 #[derive(Debug, Args)]
 pub(crate) struct SeedArgs {
     #[command(flatten)]
@@ -260,6 +276,14 @@ pub(crate) struct SeedArgs {
     /// the current repository.
     #[arg(long = "repo", value_name = "PATH")]
     pub(crate) repos: Vec<PathBuf>,
+    /// Help keep a repository you cloned available: seed the packs of this
+    /// remote's manifest and keep the manifest published, picking up new
+    /// ones. Needs no key. Repeatable; names remotes of the current
+    /// repository, or of the first --repo.
+    #[arg(long = "follow", value_name = "REMOTE")]
+    pub(crate) follow: Vec<String>,
+    #[command(flatten)]
+    pub(crate) service: ServiceArgs,
     /// Also keep this address's manifest published, for example a friend's
     /// repository. Needs no key. Repeatable; works outside a repository.
     #[arg(long = "republish", value_name = "ADDRESS")]

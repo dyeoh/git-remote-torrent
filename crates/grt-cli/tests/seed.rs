@@ -76,8 +76,18 @@ impl Sandbox {
 
     /// Starts `git torrent seed` and returns it with a stream of its stdout lines.
     fn seed(&self, bootstrap: &[String]) -> (Child, Receiver<String>) {
-        let mut command = self.command(env!("CARGO_BIN_EXE_git-torrent"), &self.path("repo"));
-        command.args(["seed", "--listen", "127.0.0.1:0", "--no-peer-dht"]);
+        self.seed_in(&self.path("repo"), bootstrap, &["--listen", "127.0.0.1:0"])
+    }
+
+    /// Starts `git torrent seed` in `cwd` with `args`, on the testnet only.
+    fn seed_in(
+        &self,
+        cwd: &Path,
+        bootstrap: &[String],
+        args: &[&str],
+    ) -> (Child, Receiver<String>) {
+        let mut command = self.command(env!("CARGO_BIN_EXE_git-torrent"), cwd);
+        command.args(["seed", "--no-peer-dht"]).args(args);
         for node in bootstrap {
             command.args(["--dht-bootstrap", node]);
         }
@@ -240,4 +250,114 @@ async fn seeded_chain_rebuilds_the_repository() {
         clone.contains(&second).expect("query"),
         "new commit rebuilt from the chain"
     );
+}
+
+/// A free local port, for a seeder that must keep its address across restarts.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .expect("bind")
+        .local_addr()
+        .expect("address")
+        .port()
+}
+
+/// Reads `lines` until one starts with `prefix`, and returns it.
+fn wait_for(lines: &Receiver<String>, prefix: &str) -> String {
+    loop {
+        let line = lines
+            .recv_timeout(Duration::from_secs(120))
+            .unwrap_or_else(|_| panic!("no line starting with {prefix:?} within two minutes"));
+        if line.starts_with(prefix) {
+            return line;
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_follower_keeps_a_cloned_repository_available() {
+    let sandbox = Sandbox::new();
+    let first = sandbox.commit("README");
+    let status = sandbox
+        .command(env!("CARGO_BIN_EXE_git-torrent"), &sandbox.path("repo"))
+        .args(["key", "generate"])
+        .output()
+        .expect("generate key");
+    assert!(status.status.success(), "key generate failed");
+    let testnet = tokio::task::spawn_blocking(|| Testnet::builder(5).build().expect("testnet"))
+        .await
+        .expect("join");
+    // The publisher keeps one address, so the follower can ask it for packs.
+    let publisher_addr = format!("127.0.0.1:{}", free_port());
+    let publish = |sandbox: &Sandbox| {
+        sandbox.seed_in(
+            &sandbox.path("repo"),
+            &testnet.bootstrap,
+            &["--listen", &publisher_addr],
+        )
+    };
+    let (mut publisher, lines) = publish(&sandbox);
+    let announced = wait_for_publish(&lines);
+
+    // A cloner's repository: a torrent:// remote, peers from its config. It
+    // never fetched, so the follower downloads every pack itself.
+    let cloner = sandbox.path("cloner");
+    sandbox.git(&["init", "-q", "cloner"], sandbox.dir.path());
+    let address = format!("torrent://{}", announced.key);
+    sandbox.git(&["remote", "add", "origin", &address], &cloner);
+    sandbox.git(&["config", "torrent.peer", &publisher_addr], &cloner);
+    let (mut follower, follower_lines) = sandbox.seed_in(
+        &cloner,
+        &testnet.bootstrap,
+        &[
+            "--listen",
+            "127.0.0.1:0",
+            "--follow",
+            "origin",
+            "--republish-secs",
+            "2",
+        ],
+    );
+    let following = wait_for(&follower_lines, "Following origin: ");
+    assert!(following.contains("manifest #1"), "{following}");
+    let follower_peer: SocketAddr = following
+        .rsplit(" on ")
+        .next()
+        .expect("address")
+        .trim_end_matches('.')
+        .parse()
+        .expect("socket address");
+
+    // With the publisher gone, the follower alone serves the repository.
+    publisher.kill().expect("stop publisher");
+    publisher.wait().expect("reap publisher");
+    let from_follower = Announced {
+        peer: follower_peer,
+        key: announced.key,
+    };
+    let work = TempDir::new().expect("client dir");
+    let (signed, clone) = clone_from_swarm(&testnet, &from_follower, work.path()).await;
+    assert_eq!(signed.seq().get(), 1);
+    assert!(
+        clone.contains(&first).expect("query"),
+        "cloned from the follower"
+    );
+
+    // The publisher signs #2 and seeds it briefly; the follower picks it up.
+    let second = sandbox.commit("CHANGES");
+    let (mut publisher, lines) = publish(&sandbox);
+    wait_for_publish(&lines);
+    let now = wait_for(&follower_lines, "Now seeding manifest #2");
+    assert!(now.contains("2 pack(s)"), "{now}");
+    publisher.kill().expect("stop publisher");
+    publisher.wait().expect("reap publisher");
+
+    let work = TempDir::new().expect("client dir");
+    let (signed, clone) = clone_from_swarm(&testnet, &from_follower, work.path()).await;
+    assert_eq!(signed.seq().get(), 2);
+    assert!(
+        clone.contains(&second).expect("query"),
+        "the new commit came from the follower"
+    );
+    follower.kill().expect("stop follower");
+    follower.wait().expect("reap follower");
 }

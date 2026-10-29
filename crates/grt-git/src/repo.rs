@@ -166,6 +166,20 @@ impl Repo {
         config_get(command)
     }
 
+    /// Reads every value of a multi-valued config key, as
+    /// `git config --get-all` sees it from this repository.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if git cannot be run or the config is invalid.
+    pub fn config_all(&self, key: &str) -> Result<Vec<String>, Error> {
+        let mut command = self.git();
+        command.args(["config", "--get-all", key]);
+        Ok(config_get(command)?
+            .map(|values| values.lines().map(str::to_owned).collect())
+            .unwrap_or_default())
+    }
+
     pub(crate) fn git(&self) -> Command {
         let mut command = Command::new("git");
         command.arg("--git-dir").arg(&self.git_dir);

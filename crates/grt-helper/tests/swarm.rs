@@ -182,7 +182,9 @@ impl Publisher {
         manifest
             .set_head(repo.head_target().expect("head"))
             .expect("head is a published ref");
-        manifest.set_upstream(self.upstream.clone());
+        manifest
+            .set_upstream(self.upstream.clone())
+            .expect("a valid upstream");
         manifest
             .set_mirrors(self.mirrors.clone())
             .expect("valid mirrors");

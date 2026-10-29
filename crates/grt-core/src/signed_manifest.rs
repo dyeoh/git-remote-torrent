@@ -66,6 +66,8 @@ impl SignedManifest {
         check_salt(salt)?;
         let value = manifest.encode();
         check_value_len(&value)?;
+        // Sign only what every reader accepts.
+        Manifest::decode(&value)?;
         let signature = sign(&signable(salt, seq, &value));
         Ok(SignedManifest {
             public_key,
@@ -296,7 +298,9 @@ mod tests {
         let (value, signature) = (signed.value(), signed.signature());
 
         let mut other = manifest();
-        other.set_upstream(Some("https://evil.example/repo.git".to_owned()));
+        other
+            .set_upstream(Some("https://evil.example/repo.git".to_owned()))
+            .unwrap();
         let other_value = other.encode();
         let mut flipped = *signature;
         flipped[0] ^= 1;

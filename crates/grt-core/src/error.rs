@@ -20,6 +20,13 @@ pub enum Error {
         "unsupported manifest format version {0} (this build reads version {MANIFEST_VERSION})"
     )]
     UnsupportedVersion(i64),
+    /// The manifest requires a feature (its `req` list) this build does not
+    /// implement, so reading it while ignoring the feature would be wrong.
+    #[error(
+        "the manifest requires format feature {0:?}, which this version does not support; \
+         upgrade git-remote-torrent"
+    )]
+    UnsupportedFeature(String),
     /// A manifest field is missing or has the wrong shape.
     #[error("manifest field `{field}` is {problem}")]
     InvalidField {

@@ -215,7 +215,9 @@ fn refs_manifest(
                 .and_then(|previous| previous.manifest().upstream().map(str::to_owned))
         }),
     };
-    manifest.set_upstream(upstream);
+    manifest
+        .set_upstream(upstream)
+        .context("--upstream must be a URL git can clone from")?;
 
     manifest.set_mirrors(match (previous, args.mirrors.is_empty()) {
         (Some(previous), true) => previous.manifest().mirrors().to_vec(),
@@ -416,13 +418,16 @@ fn origin_upstream(repo: &Repo) -> anyhow::Result<Option<String>> {
     let Some(url) = repo.config("remote.origin.url")? else {
         return Ok(None);
     };
-    if let Some(upstream) = url.strip_prefix("torrent::") {
-        return Ok(Some(upstream.to_owned()));
-    }
-    if url.starts_with("torrent://") {
-        return Ok(None);
-    }
-    Ok(Some(url))
+    let upstream = match url.strip_prefix("torrent::") {
+        Some(upstream) => upstream.to_owned(),
+        None if url.starts_with("torrent://") => return Ok(None),
+        None => url,
+    };
+    // A relative path, say, means nothing to cloners: record no upstream.
+    Ok(Manifest::new()
+        .set_upstream(Some(upstream.clone()))
+        .is_ok()
+        .then_some(upstream))
 }
 
 /// Loads and re-verifies the cached signed manifest, if there is one.

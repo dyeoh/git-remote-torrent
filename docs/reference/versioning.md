@@ -9,20 +9,28 @@ A change to any of these is breaking:
 
 1. **CLI**: subcommands, flags and exit codes of `git-torrent` and `git-remote-torrent`.
 2. **URL syntax** (see [url-syntax.md](url-syntax.md)).
-3. **Manifest wire format**: has its own `v` field, versioned separately (below).
+3. **Manifest wire format**, including the manifest copy file, pack torrents and the
+   mirror layout: has its own `v` field, versioned separately (below).
 4. **Library crate APIs** (`grt-*`), checked by `cargo-semver-checks` in CI.
 
-Log output, `--help` wording and internal on-disk cache layout under `.git/torrent/` are
-**not** public API.
+Log output, `--help` wording and the on-disk layout under `.git/torrent/` are **not**
+public API. The manifest copy file stored there is, in its encoding (see
+[manifest-format.md](manifest-format.md#manifest-copy-file)), because releases and other
+tools exchange it.
 
 ## Manifest format version
 
-- Readers reject a manifest whose major `v` is unknown, and ignore keys they don't
-  recognise.
-- Adding an optional key is a minor format change. Changing or removing a key, or changing
-  signature semantics, is a major change.
-- Because swarms outlive releases, a format major bump requires an ADR and a dual-publish
-  transition period.
+Format 1 is frozen from 1.0 ([ADR-0011](../adr/0011-manifest-format-frozen.md)); the
+[specification](manifest-format.md#evolution) has the full rules.
+
+- Readers reject a manifest whose `v` is unknown, or whose `req` list names a feature they
+  don't implement. They ignore keys they don't recognise.
+- Adding an optional key that older readers may ignore is a minor format change. So is
+  adding a key that they must not ignore, together with a new `req` feature name.
+- Changing or removing a key, tightening validation, or changing how anything is signed or
+  hashed is a major change. Because swarms outlive releases, it requires an ADR and a
+  transition period in which publishers sign both versions.
+- The test vectors in `grt-core` and `grt-swarm` fail on any format change.
 
 ## How versions are bumped
 

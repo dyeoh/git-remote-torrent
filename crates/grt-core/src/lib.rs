@@ -49,7 +49,9 @@ mod trust_store;
 
 pub use crate::error::Error;
 pub use crate::info_hash::{InfoHash, InfoHashV2};
-pub use crate::manifest::{MANIFEST_VERSION, MAX_MIRROR_LEN, Manifest, describe_age};
+pub use crate::manifest::{
+    MANIFEST_VERSION, MAX_MIRROR_LEN, MAX_UPSTREAM_LEN, Manifest, SUPPORTED_FEATURES, describe_age,
+};
 pub use crate::object_id::ObjectId;
 pub use crate::public_key::PublicKey;
 pub use crate::publisher_key::PublisherKey;

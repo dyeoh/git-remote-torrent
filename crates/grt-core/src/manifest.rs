@@ -21,6 +21,11 @@ const KEY_PACKS_V2: &[u8] = b"packs2";
 const KEY_UPSTREAM: &[u8] = b"up";
 const KEY_MIRRORS: &[u8] = b"ws";
 const KEY_SIGNED_AT: &[u8] = b"t";
+const KEY_REQUIRED: &[u8] = b"req";
+
+/// Format features this build implements, by the names a manifest's `req`
+/// list uses. A reader rejects a manifest that requires any other.
+pub const SUPPORTED_FEATURES: &[&str] = &[];
 
 /// Says how long ago `signed_at` was, at `now` (both in seconds since the
 /// Unix epoch): "3 hours ago", "12 days ago", or "in the future" when the
@@ -39,6 +44,9 @@ pub fn describe_age(signed_at: u64, now: u64) -> String {
     format!("{count} {unit}{plural} ago")
 }
 
+/// Longest upstream URL accepted, in bytes.
+pub const MAX_UPSTREAM_LEN: usize = 200;
+
 /// Longest mirror base URL accepted, in bytes.
 pub const MAX_MIRROR_LEN: usize = 200;
 
@@ -51,11 +59,12 @@ pub const MAX_MIRROR_LEN: usize = 200;
 /// | `v` | format version ([`MANIFEST_VERSION`]) |
 /// | `refs` | dictionary of ref name → raw object id |
 /// | `packs` | concatenated 20-byte BitTorrent v1 pack infohashes, oldest first |
-/// | `packs2` | optional; concatenated 32-byte v2 infohashes of the same packs, same order |
+/// | `packs2` | concatenated 32-byte v2 infohashes of the same packs, same order; required when there are packs |
 /// | `head` | optional ref name that `HEAD` points to |
-/// | `up` | optional canonical upstream URL |
+/// | `up` | optional canonical upstream URL (see [`Manifest::set_upstream`]) |
 /// | `ws` | optional list of HTTP mirror base URLs serving `<infohash>.pack` |
 /// | `t` | optional time of signing, in seconds since the Unix epoch |
+/// | `req` | optional list of format features a reader must implement ([`SUPPORTED_FEATURES`]) |
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Manifest {
     head: Option<RefName>,
@@ -164,8 +173,19 @@ impl Manifest {
     }
 
     /// Sets the canonical upstream URL.
-    pub fn set_upstream(&mut self, upstream: Option<String>) {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidField`] unless the URL is at most
+    /// [`MAX_UPSTREAM_LEN`] bytes, has no whitespace or control characters,
+    /// does not start with `-`, and is an `https`, `http`, `ssh`, `git` or
+    /// `file` URL, an scp-style `[user@]host:path`, or an absolute path.
+    pub fn set_upstream(&mut self, upstream: Option<String>) -> Result<(), Error> {
+        if let Some(upstream) = &upstream {
+            check_upstream(upstream)?;
+        }
         self.upstream = upstream;
+        Ok(())
     }
 
     /// HTTP mirrors that serve this manifest's packs as
@@ -282,6 +302,19 @@ impl Manifest {
         if version != MANIFEST_VERSION {
             return Err(Error::UnsupportedVersion(version));
         }
+        // Before anything else: an unknown required feature may change what
+        // the other fields mean.
+        if let Some(required) = dict.get(KEY_REQUIRED) {
+            for feature in required.as_list().ok_or(invalid("req", "not a list"))? {
+                let feature = feature
+                    .as_bytes()
+                    .ok_or(invalid("req", "has a non-string entry"))?;
+                let feature = String::from_utf8_lossy(feature);
+                if !SUPPORTED_FEATURES.contains(&feature.as_ref()) {
+                    return Err(Error::UnsupportedFeature(feature.into_owned()));
+                }
+            }
+        }
 
         let mut manifest = Manifest::new();
         let refs = required(dict, KEY_REFS, "refs")?
@@ -319,6 +352,13 @@ impl Manifest {
             manifest.set_packs_v2(Some(packs_v2))?;
         }
 
+        if !manifest.packs.is_empty() && manifest.packs_v2.is_none() {
+            return Err(invalid(
+                "packs2",
+                "missing; every pack needs its SHA-256 infohash",
+            ));
+        }
+
         if let Some(head) = dict.get(KEY_HEAD) {
             let head = head
                 .as_bytes()
@@ -331,7 +371,7 @@ impl Manifest {
                 .as_bytes()
                 .ok_or(invalid("up", "not a byte string"))?;
             let upstream = std::str::from_utf8(upstream).map_err(|_| invalid("up", "not UTF-8"))?;
-            manifest.set_upstream(Some(upstream.to_owned()));
+            manifest.set_upstream(Some(upstream.to_owned()))?;
         }
 
         if let Some(mirrors) = dict.get(KEY_MIRRORS) {
@@ -353,7 +393,7 @@ impl Manifest {
 
         if let Some(signed_at) = dict.get(KEY_SIGNED_AT) {
             let signed_at = signed_at.as_int().ok_or(invalid("t", "not an integer"))?;
-            let signed_at = u64::try_from(signed_at).map_err(|_| invalid("t", "is negative"))?;
+            let signed_at = u64::try_from(signed_at).map_err(|_| invalid("t", "negative"))?;
             manifest.set_signed_at(Some(signed_at));
         }
 
@@ -361,15 +401,49 @@ impl Manifest {
     }
 }
 
+fn check_upstream(upstream: &str) -> Result<(), Error> {
+    if upstream.len() > MAX_UPSTREAM_LEN {
+        return Err(invalid("up", "longer than 200 bytes"));
+    }
+    if upstream
+        .chars()
+        .any(|c| c.is_whitespace() || c.is_control())
+    {
+        return Err(invalid(
+            "up",
+            "not allowed to contain whitespace or control characters",
+        ));
+    }
+    if upstream.starts_with('-') {
+        return Err(invalid("up", "an option (it starts with `-`)"));
+    }
+    let url = ["https://", "http://", "ssh://", "git://", "file://"]
+        .iter()
+        .any(|scheme| upstream.starts_with(scheme) && upstream.len() > scheme.len());
+    // `[user@]host:path`, as git reads it: a colon before any slash.
+    let scp = !upstream.contains("://")
+        && upstream.split_once(':').is_some_and(|(host, path)| {
+            !host.is_empty() && !host.contains('/') && !path.is_empty()
+        });
+    let absolute = upstream.starts_with('/');
+    if !(url || scp || absolute) {
+        return Err(invalid(
+            "up",
+            "not an https, http, ssh, git or file URL, an scp-style address or an absolute path",
+        ));
+    }
+    Ok(())
+}
+
 fn check_mirror(mirror: &str) -> Result<(), Error> {
     if !(mirror.starts_with("https://") || mirror.starts_with("http://")) {
-        return Err(invalid("ws", "a mirror is not an http:// or https:// URL"));
+        return Err(invalid("ws", "not a list of http:// or https:// URLs"));
     }
     if mirror.len() > MAX_MIRROR_LEN {
-        return Err(invalid("ws", "a mirror URL is longer than 200 bytes"));
+        return Err(invalid("ws", "not a list of URLs of at most 200 bytes"));
     }
     if mirror.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err(invalid("ws", "a mirror URL contains whitespace"));
+        return Err(invalid("ws", "not a list of URLs without whitespace"));
     }
     Ok(())
 }
@@ -408,7 +482,15 @@ mod tests {
         manifest.set_head(Some(main)).unwrap();
         manifest.push_pack(InfoHash::from([1; 20]));
         manifest.push_pack(InfoHash::from([2; 20]));
-        manifest.set_upstream(Some("https://github.com/org/repo.git".to_owned()));
+        manifest
+            .set_packs_v2(Some(vec![
+                InfoHashV2::from([1; 32]),
+                InfoHashV2::from([2; 32]),
+            ]))
+            .unwrap();
+        manifest
+            .set_upstream(Some("https://github.com/org/repo.git".to_owned()))
+            .unwrap();
         manifest
             .set_mirrors(vec!["https://example.org/packs".to_owned()])
             .unwrap();
@@ -448,13 +530,91 @@ mod tests {
         dict.insert(b"t".to_vec(), Value::Int(-1));
         assert_eq!(
             Manifest::decode(&Value::Dict(dict.clone()).encode()),
-            Err(invalid("t", "is negative"))
+            Err(invalid("t", "negative"))
         );
         dict.insert(b"t".to_vec(), Value::Bytes(b"yesterday".to_vec()));
         assert_eq!(
             Manifest::decode(&Value::Dict(dict).encode()),
             Err(invalid("t", "not an integer"))
         );
+    }
+
+    #[test]
+    fn packs_need_their_sha256_infohashes() {
+        let Ok(Value::Dict(mut dict)) = Value::decode(&sample().encode()) else {
+            panic!("a manifest encodes as a dictionary");
+        };
+        dict.remove(b"packs2".as_slice());
+        assert_eq!(
+            Manifest::decode(&Value::Dict(dict).encode()),
+            Err(invalid(
+                "packs2",
+                "missing; every pack needs its SHA-256 infohash"
+            ))
+        );
+        // Without packs there is nothing to hash.
+        assert_eq!(
+            Manifest::decode(&Manifest::new().encode()),
+            Ok(Manifest::new())
+        );
+    }
+
+    #[test]
+    fn unknown_required_features_are_refused() {
+        let Ok(Value::Dict(mut dict)) = Value::decode(&sample().encode()) else {
+            panic!("a manifest encodes as a dictionary");
+        };
+        dict.insert(b"req".to_vec(), Value::List(Vec::new()));
+        assert_eq!(
+            Manifest::decode(&Value::Dict(dict.clone()).encode()),
+            Ok(sample()),
+            "an empty list requires nothing"
+        );
+        dict.insert(
+            b"req".to_vec(),
+            Value::List(vec![Value::Bytes(b"refs-file".to_vec())]),
+        );
+        assert_eq!(
+            Manifest::decode(&Value::Dict(dict).encode()),
+            Err(Error::UnsupportedFeature("refs-file".to_owned()))
+        );
+    }
+
+    #[test]
+    fn upstreams_are_urls_scp_addresses_or_absolute_paths() {
+        let mut manifest = Manifest::new();
+        for good in [
+            "https://gitlab.com/group/project.git",
+            "http://forge.lan/x.git",
+            "ssh://git@forge.example:2222/x.git",
+            "git://forge.example/x.git",
+            "file:///srv/git/x.git",
+            "git@github.com:org/repo.git",
+            "/srv/git/x.git",
+        ] {
+            assert_eq!(
+                manifest.set_upstream(Some(good.to_owned())),
+                Ok(()),
+                "{good}"
+            );
+        }
+        for bad in [
+            "",
+            "../relative/repo",
+            "-uploadpack=evil",
+            "https://forge.example/a b",
+            "https://forge.example/\u{7}",
+            "ftp://forge.example/x.git",
+            "https://",
+            ":path",
+        ] {
+            assert!(
+                manifest.set_upstream(Some(bad.to_owned())).is_err(),
+                "{bad:?} must be rejected"
+            );
+        }
+        let long = format!("https://forge.example/{}", "a".repeat(MAX_UPSTREAM_LEN));
+        assert!(manifest.set_upstream(Some(long)).is_err());
     }
 
     #[test]

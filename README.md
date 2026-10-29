@@ -7,20 +7,23 @@ manifest on the BitTorrent DHT, with its packs served by peers and by any static
 verified with SHA-256. A takedown, outage or revoked account then doesn't take the code
 with it, as long as someone keeps a mirror or a seeder.
 
-> **Status: pre-alpha (0.x).** Clones and fetches work from the swarm, including after
-> the upstream is gone. Pushes can publish to the swarm, even while the upstream is down,
-> and `git torrent reconcile` catches the upstream up later. See the
-> [roadmap](docs/explanation/roadmap.md). While the version is 0.y.z, any minor release
-> may contain breaking changes.
+> **Status: stable (1.x).** The manifest format is frozen
+> ([ADR-0011](docs/adr/0011-manifest-format-frozen.md)): 1.x releases read every manifest
+> 1.0 writes, and the CLI and URL syntax follow [semantic versioning](docs/reference/versioning.md).
+> Clones and fetches work from the swarm, including after the upstream is gone. Pushes can
+> publish to the swarm, even while the upstream is down, and `git torrent reconcile`
+> catches the upstream up later. **Known limit:** one manifest holds about 15 refs
+> (branches and tags); larger ref sets are planned for 1.x. See the
+> [threat model](docs/explanation/threat-model.md) for what is and isn't protected.
 
 ## Try it
 
 ```sh
-cargo install --git https://github.com/dyeoh/git-remote-torrent grt-helper grt-cli
+cargo install --git https://github.com/dyeoh/git-remote-torrent --tag v1.0.0 grt-helper grt-cli
 
 # Publisher: sign your refs, seed your objects, publish to the DHT
 cd your-project
-git torrent key use ~/.ssh/id_ed25519      # or: git torrent key generate
+git torrent key generate --passphrase      # a key for this address only
 git torrent seed                           # prints your torrent://<key> address
 
 # Anyone, even after the upstream is gone:

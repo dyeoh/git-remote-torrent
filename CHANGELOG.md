@@ -3,6 +3,11 @@
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [1.0.0] - 2026-10-29
+
+### Added
+- Let cloners seed with `seed --follow`, and install seeders as services (#56)
+- **BREAKING:** Freeze manifest format 1, with required features and test vectors (#58)
 ## [0.4.0] - 2026-10-28
 
 ### Added

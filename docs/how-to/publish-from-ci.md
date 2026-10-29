@@ -50,7 +50,7 @@ jobs:
         with:
           fetch-depth: 0 # packs need the full history
       - run: git update-ref refs/heads/main refs/remotes/origin/main
-      - uses: dyeoh/git-remote-torrent@v0.4.0
+      - uses: dyeoh/git-remote-torrent@v1.0.0
         with:
           signing-key: ${{ secrets.TORRENT_SIGNING_KEY }}
           refs: refs/heads/main refs/tags
@@ -59,7 +59,7 @@ jobs:
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: dyeoh/git-remote-torrent@v0.4.0
+      - uses: dyeoh/git-remote-torrent@v1.0.0
         with:
           command: republish
 ```
@@ -104,7 +104,7 @@ your own command. It runs with `GIT_TORRENT_PACKS` set to a directory of `<infoh
 files and the `manifest` copy, and must upload them keeping their names:
 
 ```yaml
-      - uses: dyeoh/git-remote-torrent@v0.4.0
+      - uses: dyeoh/git-remote-torrent@v1.0.0
         with:
           signing-key: ${{ secrets.TORRENT_SIGNING_KEY }}
           mirror: https://packs.example.com/project

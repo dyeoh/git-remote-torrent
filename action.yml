@@ -42,7 +42,7 @@ inputs:
     default: ""
   version:
     description: >-
-      The git-remote-torrent release to run, such as `v0.4.0`. Defaults to the tag this
+      The git-remote-torrent release to run, such as `v1.0.0`. Defaults to the tag this
       action is used at. `source` builds the action's own checkout instead.
     default: ""
   dht-bootstrap:

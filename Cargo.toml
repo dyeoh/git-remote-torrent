@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -11,10 +11,10 @@ repository = "https://github.com/dyeoh/git-remote-torrent"
 authors = ["git-remote-torrent contributors"]
 
 [workspace.dependencies]
-grt-core = { path = "crates/grt-core", version = "1.0.0" }
-grt-git = { path = "crates/grt-git", version = "1.0.0" }
-grt-swarm = { path = "crates/grt-swarm", version = "1.0.0" }
-grt-upstream = { path = "crates/grt-upstream", version = "1.0.0" }
+grt-core = { path = "crates/grt-core", version = "1.0.1" }
+grt-git = { path = "crates/grt-git", version = "1.0.1" }
+grt-swarm = { path = "crates/grt-swarm", version = "1.0.1" }
+grt-upstream = { path = "crates/grt-upstream", version = "1.0.1" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 ssh-key = { version = "0.6", default-features = false, features = ["std"] }

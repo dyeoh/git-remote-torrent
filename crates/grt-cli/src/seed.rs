@@ -1,22 +1,28 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, bail, ensure};
-use grt_core::{InfoHash, RemoteUrl, SignedManifest};
+use grt_core::{InfoHash, PublicKey, RemoteUrl, SignedManifest};
 use grt_git::Repo;
-use grt_swarm::{ManifestDht, PackSwarm, SwarmConfig};
+use grt_swarm::{ManifestDht, MirrorSource, PackSwarm, SwarmConfig};
 
 use crate::cli::SeedArgs;
+use crate::packs::{self, Peers};
 use crate::{key, sign};
 
 /// The pid file of a running seeder, under `.git/torrent/`.
 pub(crate) const SEED_PID_FILE: &str = "seed.pid";
 
 pub(crate) fn run(args: &SeedArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::Result<()> {
+    if args.service.install || args.service.uninstall || args.service.print_service {
+        return crate::service::run(args, cwd, out);
+    }
     let repos = repositories(args, cwd)?;
+    let follows = follow_targets(args, cwd)?;
     if repos.len() > 1 {
         let sign = &args.sign;
         ensure!(
@@ -51,13 +57,16 @@ pub(crate) fn run(args: &SeedArgs, cwd: &Path, out: &mut dyn Write) -> anyhow::R
             let signed = sign::sign_next(&repo, key, &sign_args, sign::Chain::Extend, out).await?;
             served.push((repo, signed));
         }
-        seed(served, args, out).await
+        seed(served, follows, args, out).await
     })
 }
 
-/// The repositories to serve: each `--repo`, else the current one. With only
-/// `--republish` addresses, being outside a repository is fine.
-fn repositories(args: &SeedArgs, cwd: &Path) -> anyhow::Result<Vec<Repo>> {
+/// The repositories to sign and serve: each `--repo`, else the current one.
+/// With only `--follow` remotes or `--republish` addresses, there are none.
+pub(crate) fn repositories(args: &SeedArgs, cwd: &Path) -> anyhow::Result<Vec<Repo>> {
+    if args.repos.is_empty() && !args.follow.is_empty() {
+        return Ok(Vec::new());
+    }
     if !args.repos.is_empty() {
         return args
             .repos
@@ -75,6 +84,98 @@ fn repositories(args: &SeedArgs, cwd: &Path) -> anyhow::Result<Vec<Repo>> {
     }
 }
 
+/// A `--follow` remote: the repository it belongs to, its address, and the
+/// repository's `torrent.peer`, `torrent.mirror` and
+/// `torrent.allowPrivateMirrors` settings, as the remote helper uses them.
+pub(crate) struct FollowTarget {
+    repo: Repo,
+    remote: String,
+    key: PublicKey,
+    salt: Vec<u8>,
+    sources: Sources,
+}
+
+/// Where a follower looks for packs besides the DHT.
+pub(crate) struct Sources {
+    peers: Vec<SocketAddr>,
+    mirrors: Vec<String>,
+    allow_private_mirrors: bool,
+}
+
+impl Sources {
+    fn from_config(repo: &Repo) -> anyhow::Result<Self> {
+        let peers = repo
+            .config_all("torrent.peer")?
+            .iter()
+            .map(|peer| {
+                peer.parse()
+                    .with_context(|| format!("torrent.peer {peer:?} is not host:port"))
+            })
+            .collect::<anyhow::Result<_>>()?;
+        let allow_private_mirrors = match repo.config("torrent.allowPrivateMirrors")?.as_deref() {
+            None | Some("false" | "no" | "off" | "0") => false,
+            Some("true" | "yes" | "on" | "1") => true,
+            Some(other) => bail!("torrent.allowPrivateMirrors must be a boolean, not {other:?}"),
+        };
+        Ok(Sources {
+            peers,
+            mirrors: repo.config_all("torrent.mirror")?,
+            allow_private_mirrors,
+        })
+    }
+}
+
+/// The `--follow` remotes, in the first `--repo` or the current repository.
+/// Each must be a `torrent://` remote or have a `torrentAddress`.
+pub(crate) fn follow_targets(args: &SeedArgs, cwd: &Path) -> anyhow::Result<Vec<FollowTarget>> {
+    if args.follow.is_empty() {
+        return Ok(Vec::new());
+    }
+    let dir = args
+        .repos
+        .first()
+        .map_or(cwd.to_path_buf(), |repo| cwd.join(repo));
+    args.follow
+        .iter()
+        .map(|remote| {
+            let repo = Repo::discover(&dir)
+                .with_context(|| format!("{} is not a git repository", dir.display()))?;
+            let url = repo.config(&format!("remote.{remote}.url"))?;
+            let address = match url.as_deref() {
+                Some(url) if url.starts_with("torrent://") => url.to_owned(),
+                Some(_) => repo
+                    .config(&format!("remote.{remote}.torrentAddress"))?
+                    .with_context(|| {
+                        format!(
+                            "remote {remote} has no torrent address \
+                             (remote.{remote}.torrentAddress) to follow"
+                        )
+                    })?,
+                None => bail!("there is no remote named {remote}"),
+            };
+            let RemoteUrl::Swarm { key, salt } = address.parse()? else {
+                bail!("{address} is not a torrent:// address");
+            };
+            Ok(FollowTarget {
+                sources: Sources::from_config(&repo)?,
+                repo,
+                remote: remote.clone(),
+                key,
+                salt,
+            })
+        })
+        .collect()
+}
+
+/// A followed address: the newest manifest seen for it, whose packs are
+/// seeded and which is republished.
+struct Followed {
+    repo: Repo,
+    address: RemoteUrl,
+    sources: Sources,
+    current: SignedManifest,
+}
+
 /// One repository being seeded: its newest published manifest, and the pid
 /// file that tells `git push` a seeder will publish what it signs.
 struct Served {
@@ -84,11 +185,13 @@ struct Served {
 }
 
 /// Seeds every pack of each repository's chain, publishes its manifest, and
-/// keeps them alive until Ctrl-C, together with the `--republish` addresses.
-/// Manifests signed meanwhile (by `git push` or `git torrent sign`) are
-/// picked up, seeded and published too.
+/// keeps them alive until Ctrl-C, together with the `--follow` and
+/// `--republish` addresses. Manifests signed meanwhile (by `git push` or
+/// `git torrent sign`) are picked up, seeded and published too, as are newer
+/// manifests of followed addresses.
 async fn seed(
     repos: Vec<(Repo, SignedManifest)>,
+    follows: Vec<FollowTarget>,
     args: &SeedArgs,
     out: &mut dyn Write,
 ) -> anyhow::Result<()> {
@@ -97,9 +200,13 @@ async fn seed(
     config.dht = !args.no_peer_dht;
     config.local_discovery = !args.no_local_discovery;
     config.upnp = args.upnp;
-    let session = match repos.first() {
-        Some((repo, _)) => repo.git_dir().join("torrent").join("session"),
-        None => std::env::temp_dir().join(format!("git-torrent-seed-{}", std::process::id())),
+    let session = match (repos.first(), follows.first()) {
+        (Some((repo, _)), _) | (None, Some(FollowTarget { repo, .. })) => {
+            repo.git_dir().join("torrent").join("session")
+        }
+        (None, None) => {
+            std::env::temp_dir().join(format!("git-torrent-seed-{}", std::process::id()))
+        }
     };
     let swarm = PackSwarm::start(&session, config).await?;
     let listen = swarm
@@ -130,6 +237,10 @@ async fn seed(
             current: signed,
         });
     }
+    let mut followed = Vec::new();
+    for target in follows {
+        followed.push(follow(target, &swarm, &dht, &mut seeded, out).await?);
+    }
     republish_others(&dht, &args.republish, out).await?;
     writeln!(out, "Press Ctrl-C to stop.")?;
     out.flush()?;
@@ -147,12 +258,13 @@ async fn seed(
                         writeln!(out, "warning: republishing {} failed: {error}", sign::address(&served.current))?;
                     }
                 }
+                follow_newer(&mut followed, &swarm, &dht, &mut seeded, out).await?;
                 republish_others(&dht, &args.republish, out).await?;
                 out.flush()?;
             }
             _ = watch.tick() => {
                 publish_newer(&mut served, &swarm, &dht, &mut seeded, out).await?;
-                if served.is_empty() && args.republish.is_empty() {
+                if served.is_empty() && followed.is_empty() && args.republish.is_empty() {
                     bail!("no repository is left to serve");
                 }
             }
@@ -216,6 +328,186 @@ async fn publish_newer(
     }
     out.flush()?;
     Ok(())
+}
+
+/// Starts following `target`: takes the newer of the manifest its remote last
+/// fetched and the one on the DHT, stores and seeds its packs, and publishes
+/// it again.
+async fn follow(
+    target: FollowTarget,
+    swarm: &PackSwarm,
+    dht: &ManifestDht,
+    seeded: &mut HashSet<InfoHash>,
+    out: &mut dyn Write,
+) -> anyhow::Result<Followed> {
+    let FollowTarget {
+        repo,
+        remote,
+        key,
+        salt,
+        sources,
+    } = target;
+    let address = RemoteUrl::Swarm {
+        key,
+        salt: salt.clone(),
+    };
+    let cache = grt_swarm::fetched_manifest_path(&repo.git_dir().join("torrent"), &key, &salt);
+    // Decoding verifies the signature; the key and name must be the remote's.
+    let fetched = fs::read(&cache)
+        .ok()
+        .and_then(|bytes| SignedManifest::decode(&bytes).ok())
+        .filter(|signed| signed.public_key() == key && signed.salt() == salt);
+    let published = match dht.resolve(&key, &salt).await {
+        Ok(published) => published,
+        Err(error) => {
+            writeln!(out, "warning: resolving {address} failed: {error}")?;
+            None
+        }
+    };
+    let current = match (fetched, published) {
+        (Some(fetched), Some(published)) if published.seq() > fetched.seq() => published,
+        (Some(fetched), _) => fetched,
+        (None, Some(published)) => published,
+        (None, None) => bail!(
+            "nothing is published at {address} ({remote}), and {remote} has not been fetched \
+             from it"
+        ),
+    };
+    stock(&repo, &current, &sources, swarm, seeded, out).await?;
+    writeln!(
+        out,
+        "Following {remote}: seeding {} pack(s) of {address} manifest #{} on {}.",
+        current.manifest().packs().len(),
+        current.seq().get(),
+        swarm
+            .listen_addr()
+            .context("the torrent session is not listening")?
+    )?;
+    if let Err(error) = dht.publish(&current, None).await {
+        writeln!(out, "warning: republishing {address} failed: {error}")?;
+    }
+    Ok(Followed {
+        repo,
+        address,
+        sources,
+        current,
+    })
+}
+
+/// Picks up a newer manifest for each followed address: its new packs are
+/// stored and seeded before it is republished. Failures are reported and
+/// retried on the next tick.
+async fn follow_newer(
+    followed: &mut [Followed],
+    swarm: &PackSwarm,
+    dht: &ManifestDht,
+    seeded: &mut HashSet<InfoHash>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    for followed in followed {
+        let RemoteUrl::Swarm { key, salt } = &followed.address else {
+            unreachable!("followed addresses are torrent:// addresses");
+        };
+        match dht.resolve(key, salt).await {
+            Ok(Some(next)) if next.seq() > followed.current.seq() => {
+                match stock(&followed.repo, &next, &followed.sources, swarm, seeded, out).await {
+                    Ok(()) => {
+                        writeln!(
+                            out,
+                            "Now seeding manifest #{} of {} ({} pack(s)).",
+                            next.seq().get(),
+                            followed.address,
+                            next.manifest().packs().len()
+                        )?;
+                        followed.current = next;
+                    }
+                    Err(error) => writeln!(
+                        out,
+                        "warning: fetching the packs of manifest #{} of {} failed: {error:#}",
+                        next.seq().get(),
+                        followed.address
+                    )?,
+                }
+            }
+            Ok(_) => {}
+            Err(error) => writeln!(
+                out,
+                "warning: resolving {} failed: {error}",
+                followed.address
+            )?,
+        }
+        if let Err(error) = dht.publish(&followed.current, None).await {
+            writeln!(
+                out,
+                "warning: republishing {} failed: {error}",
+                followed.address
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Stores every pack of `signed` that `repo` lacks, from the manifest's
+/// mirrors or from peers, then seeds the chain.
+async fn stock(
+    repo: &Repo,
+    signed: &SignedManifest,
+    sources: &Sources,
+    swarm: &PackSwarm,
+    seeded: &mut HashSet<InfoHash>,
+    out: &mut dyn Write,
+) -> anyhow::Result<()> {
+    let torrent_dir = repo.git_dir().join("torrent");
+    // The publisher chose the manifest's mirrors, so unless the repository
+    // allows otherwise they may only reach public hosts (threat model M1).
+    let manifest_source = if sources.allow_private_mirrors {
+        MirrorSource::User
+    } else {
+        MirrorSource::Manifest
+    };
+    let mirrors: Vec<(&str, MirrorSource)> = signed
+        .manifest()
+        .mirrors()
+        .iter()
+        .map(|mirror| (mirror.as_str(), manifest_source))
+        .chain(
+            sources
+                .mirrors
+                .iter()
+                .map(|mirror| (mirror.as_str(), MirrorSource::User)),
+        )
+        .collect();
+    let work = torrent_dir.join(format!("follow-{}", std::process::id()));
+    // Peer downloads land in the store itself, where the session seeds them.
+    let mut peers = Peers::Running {
+        swarm,
+        peers: &sources.peers,
+        into: grt_swarm::packs_dir(&torrent_dir),
+    };
+    let downloaded = packs::download(
+        signed.manifest(),
+        |pack| !grt_swarm::stored_pack_path(&torrent_dir, pack).exists(),
+        &mirrors,
+        &mut peers,
+        &work,
+        out,
+    )
+    .await;
+    let stored = downloaded.and_then(|files| {
+        for (pack, file) in files {
+            let stored = grt_swarm::stored_pack_path(&torrent_dir, pack);
+            if file != stored {
+                fs::create_dir_all(stored.parent().expect("packs live in a directory"))?;
+                fs::rename(&file, &stored)?;
+            }
+        }
+        Ok(())
+    });
+    if work.exists() {
+        fs::remove_dir_all(&work)?;
+    }
+    stored?;
+    seed_chain(repo, swarm, signed, seeded).await
 }
 
 /// Stores each address's current manifest again; reports addresses with

@@ -23,10 +23,22 @@ Cloners need **one reachable peer** with your packs, and the manifest has to be 
 the DHT again at least every two hours. `git torrent seed` does both, and it picks up each
 push within two seconds. Run it as a service so it survives logouts and reboots:
 
-- **Linux:** [`packaging/systemd/git-torrent-seed.service`](../../packaging/systemd/git-torrent-seed.service)
-  (a systemd user unit)
-- **macOS:** [`packaging/launchd/dev.git-torrent.seed.plist`](../../packaging/launchd/dev.git-torrent.seed.plist)
-  (a launchd agent)
+```sh
+git torrent seed --listen 0.0.0.0:6881 --install
+```
+
+`--install` turns the rest of the command into a launchd agent on macOS or a systemd user
+service on Linux, which starts at login and restarts if it fails. Installing again replaces
+it; `git torrent seed --uninstall` removes it, and `--print-service` shows the file without
+installing anything. The seeder signs the current refs when it starts, with no one there
+to type a passphrase, so `--install` refuses an encrypted signing key (see [Keys](#keys)).
+
+On macOS, keep the repositories outside `~/Desktop`, `~/Documents` and `~/Downloads`:
+launchd agents can't read those folders unless you grant `git-torrent` Full Disk Access.
+
+To write the service file by hand instead, start from
+[`packaging/systemd/git-torrent-seed.service`](../../packaging/systemd/git-torrent-seed.service)
+or [`packaging/launchd/dev.git-torrent.seed.plist`](../../packaging/launchd/dev.git-torrent.seed.plist).
 
 One process can serve several repositories, and also keep other people's repositories
 findable without their keys:
@@ -49,6 +61,30 @@ With several `--repo`, each repository keeps the name it was signed with.
   A [static mirror](http-mirrors.md) serves packs while no peer is online.
 - **Cloning:** `git clone torrent://<key>/project`.
 
+## Help keep someone else's repository available
+
+Anyone who cloned a repository can serve it too, without its key:
+
+```sh
+git clone torrent://<key>/project && cd project
+git torrent seed --follow origin --install
+```
+
+The follower seeds the packs of the newest manifest it knows for `origin`, the one it
+fetched or a newer one from the DHT, and stores the manifest on the DHT again every 30
+minutes. When the publisher signs a new manifest, the follower downloads its new packs,
+checks both of their hashes against it, and serves them too. It asks the peers in
+`torrent.peer` and the mirrors in `torrent.mirror`, as fetches do, and never signs
+anything. `--follow` works with hybrid remotes as well, through their `torrentAddress`.
+
+A follower downloads any packs it lacks when it starts. To skip that, set
+`git config torrent.keepPacks true` before cloning or fetching (the clone keeps each pack,
+at the cost of roughly twice the disk). After a fetch from the swarm, the helper suggests
+`--follow` once per fetch; `git config torrent.seedHint false` hides that.
+
+Like any seeder, a follower tells the DHT that your address holds this repository (see
+the [threat model](../explanation/threat-model.md#l2-privacy)).
+
 ## What still depends on outside infrastructure
 
 | Dependency | Why | How to reduce it |
@@ -60,8 +96,8 @@ With several `--repo`, each repository keeps the name it was signed with.
 
 ## Keys
 
-The always-on seeder signs nothing by itself: it publishes manifests that `git push` or
-`git torrent sign` signed. To sign pushes unattended on the same machine, though, the
+The always-on seeder signs only when it starts, and only if the refs changed since the last
+manifest. Otherwise it publishes the manifests that `git push` or `git torrent sign` signed. To sign pushes unattended on the same machine, though, the
 signing key can't have a passphrase. Use a dedicated key for the repository, not your
 personal SSH key, so that losing the machine doesn't expose more than this address. Only one
 machine can publish an address; to move it, run `git torrent adopt` on the new machine

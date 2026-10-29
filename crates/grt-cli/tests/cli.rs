@@ -532,5 +532,25 @@ fn generate_an_encrypted_key() {
         "the passphrase decrypts it"
     );
     // The public half stays readable without the passphrase.
-    assert!(sandbox.ok(&["key", "show"]).contains("torrent://"));
+    let shown = sandbox.ok(&["key", "show"]);
+    assert!(shown.contains("torrent://"));
+
+    // A service can't type the passphrase, so it may not sign with this key.
+    let error = sandbox.fails(&["seed", "--print-service"]);
+    assert!(error.contains("is encrypted"), "{error}");
+
+    // Following signs nothing, so it needs no key at all.
+    let address = shown
+        .split_whitespace()
+        .find(|word| word.starts_with("torrent://"))
+        .expect("an address");
+    sandbox.git(&["remote", "add", "origin", address], &sandbox.repo());
+    let service = sandbox.ok(&["seed", "--print-service", "--follow", "origin"]);
+    let expected = if cfg!(target_os = "macos") {
+        "<string>--follow</string>\n    <string>origin</string>"
+    } else {
+        "\"--follow\" \"origin\""
+    };
+    assert!(service.contains(expected), "{service}");
+    assert!(!sandbox.repo().join(".git/torrent/seed.pid").exists());
 }

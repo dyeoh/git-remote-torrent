@@ -301,6 +301,10 @@ async fn pure_clone_and_incremental_fetch_from_the_swarm() {
         stderr.contains("Fetched 1 pack(s) of manifest #1 from the swarm"),
         "cloned from the swarm:\n{stderr}"
     );
+    assert!(
+        stderr.contains("hint: keep this repository available to others: git torrent seed --follow origin --install"),
+        "a clone from the swarm suggests following:\n{stderr}"
+    );
     assert_eq!(
         clone_head(&sandbox),
         first,
@@ -313,11 +317,25 @@ async fn pure_clone_and_incremental_fetch_from_the_swarm() {
 
     let second = sandbox.commit("CHANGES");
     publisher.publish(&sandbox).await;
+    sandbox.ok(
+        &sandbox.path("clone"),
+        &["config", "torrent.keepPacks", "true"],
+    );
     let stderr = sandbox.swarm_ok(&publisher, &sandbox.path("clone"), &["pull", "-q"]);
     assert!(
         stderr.contains("Fetched 1 pack(s) of manifest #2 from the swarm"),
         "only the new pack of the chain is downloaded:\n{stderr}"
     );
+    assert!(
+        !stderr.contains("hint:"),
+        "keeping packs already means following:\n{stderr}"
+    );
+    let kept: Vec<_> = fs::read_dir(sandbox.path("clone").join(".git/torrent/packs"))
+        .expect("pack store")
+        .map(|entry| entry.expect("entry").path().join("pack"))
+        .collect();
+    assert_eq!(kept.len(), 1, "the new pack is kept: {kept:?}");
+    assert!(kept[0].is_file(), "stored as <infohash>/pack");
     assert_eq!(
         clone_head(&sandbox),
         second,
@@ -456,6 +474,8 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
             &address,
             "-c",
             "torrent.allowPrivateMirrors=true",
+            "-c",
+            "torrent.seedHint=false",
             &upstream,
             "clone",
         ],
@@ -464,6 +484,10 @@ async fn http_mirror_serves_the_clone_when_upstream_and_peers_are_gone() {
         stderr.contains("the upstream is unavailable")
             && stderr.contains("Fetched 1 pack(s) of manifest #1 from HTTP mirrors."),
         "the pack came from the mirror the manifest lists:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("hint:"),
+        "torrent.seedHint=false:\n{stderr}"
     );
     assert_eq!(clone_head(&sandbox), first, "cloned from the mirror");
     let mirror = format!("torrent.mirror={base}/packs");

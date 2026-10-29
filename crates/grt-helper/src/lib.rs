@@ -15,7 +15,7 @@ mod router;
 mod swarm;
 mod trust;
 
-pub use crate::dht_swarm::{DhtSwarm, Settings};
+pub use crate::dht_swarm::{AfterFetch, DhtSwarm, Settings};
 pub use crate::error::Error;
 pub use crate::protocol::run;
 pub use crate::remote::{FetchRef, Remote};
